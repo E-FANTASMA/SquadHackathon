@@ -13,5 +13,6 @@ router.use(authorize(['company_admin']));
 router.post('/upload-payroll', upload.single('payroll_file'), payrollController.uploadPayroll);
 router.get('/payroll-batches', payrollController.getPayrollBatches);
 router.get('/batch-workers/:batchId', payrollController.getBatchWorkers);
+router.post('/update-worker-status', payrollController.updateWorkerStatus);
 
 module.exports = router;

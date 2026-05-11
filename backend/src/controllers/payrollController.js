@@ -123,6 +123,35 @@ const payrollController = {
             console.error('Get batch workers error:', error);
             res.status(500).json({ error: error.message });
         }
+    },
+
+    updateWorkerStatus: async (req, res) => {
+        try {
+            const { workerRecordId, status } = req.body; // status: 'verified', 'rejected', 'flagged'
+            const company_id = req.profile.company_id;
+
+            if (!['verified', 'rejected', 'flagged'].includes(status)) {
+                return res.status(400).json({ error: 'Invalid status' });
+            }
+
+            // Update the payroll_worker record
+            const { data, error } = await supabaseAdmin
+                .from('payroll_workers')
+                .update({ verification_status: status })
+                .eq('id', workerRecordId)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            res.status(200).json({
+                message: `Worker status updated to ${status}`,
+                data
+            });
+        } catch (error) {
+            console.error('Update status error:', error);
+            res.status(500).json({ error: error.message });
+        }
     }
 };
 

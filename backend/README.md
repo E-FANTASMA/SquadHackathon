@@ -17,28 +17,44 @@ This is the backend built with Node.js, Express, Supabase, and Squad API.
 - A Supabase account and project.
 - A Squad API account (Sandbox or Live).
 
-## API Endpoints
+## API Endpoints & Testing Guide
 
-### Authentication
-- `POST /api/auth/company/signup`: Register a new company.
-- `POST /api/auth/worker/signup`: Register a new worker.
-- `POST /api/auth/company/login`: Login for companies.
-- `POST /api/auth/worker/login`: Login for workers.
+### Authentication Flow
+1. **Company Signup**: `POST /api/auth/company/signup`
+   - Body: `{ "company_name", "email", "password", "phone_number" }`
+2. **Worker Signup**: `POST /api/auth/worker/signup`
+   - Body: `{ "full_name", "nin", "email", "password", "phone_number" }`
+3. **Login**: `POST /api/auth/company/login` (Universal)
+   - Action: Copy the `access_token` from the response.
 
-### Company Actions (Require `company_admin` role)
-- `POST /api/company/upload-payroll`: Upload Excel file with columns `full_name`, `nin`, `account_number`, `salary_amount`.
-- `GET /api/company/payroll-batches`: View all uploaded batches.
-- `GET /api/company/batch-workers/:batchId`: View workers in a specific batch.
-- `POST /api/payment/fund-batch`: Initiate payment to fund a payroll batch via Squad.
-- `POST /api/payment/disburse`: Trigger salary disbursement for verified workers.
+### Headers for Protected Routes
+All protected routes require an Authorization header:
+`Authorization: Bearer <your_access_token>`
 
-### Worker Actions (Require `worker` role)
-- `POST /api/worker/claim-record`: Claim a payroll record using NIN and account number.
-- `POST /api/worker/upload-documents`: Upload bank statement and screenshot.
-- `GET /api/worker/status`: View verification status and profile.
+### Company Actions (Admin)
+- **Upload Payroll**: `POST /api/company/upload-payroll`
+  - Body (form-data): `batch_name` (text), `payroll_file` (file)
+  - Excel Columns: `full_name`, `nin`, `account_number`, `salary_amount`
+- **View Batches**: `GET /api/company/payroll-batches`
+- **View Workers in Batch**: `GET /api/company/batch-workers/:batchId`
+- **Update Worker Status**: `POST /api/company/update-worker-status`
+  - Body: `{ "workerRecordId", "status" }` (status: `verified`, `rejected`, `flagged`)
+- **Fund Batch**: `POST /api/payment/fund-batch`
+  - Body: `{ "batchId" }`
+  - Returns a Squad checkout URL.
 
-### Webhooks
-- `POST /api/payment/webhook`: Squad webhook listener for payment confirmations.
+### Worker Actions
+- **Claim Record**: `POST /api/worker/claim-record`
+  - Body: `{ "account_number", "bank_code", "bank_name" }`
+  - *Must match NIN and Account Number in an uploaded payroll.*
+- **Upload Documents**: `POST /api/worker/upload-documents`
+  - Body (form-data): `statement` (file), `screenshot` (file)
+- **Check Status**: `GET /api/worker/status`
+
+### Simulating Payments (Webhook)
+To simulate a successful payment in development:
+- `POST /api/payment/webhook`
+- Body: `{ "event": "charge.success", "metadata": { "batch_id": "UUID_HERE" } }`
 
 ---
 

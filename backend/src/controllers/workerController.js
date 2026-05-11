@@ -1,10 +1,11 @@
 const { supabaseAdmin } = require('../config/supabase');
 const storageUtils = require('../utils/storageUtils');
+const squadService = require('../services/squadService');
 
 const workerController = {
     claimRecord: async (req, res) => {
         try {
-            const { account_number, bank_name } = req.body;
+            const { account_number, bank_code, bank_name } = req.body;
             const user_id = req.user.id;
 
             // 1. Get worker profile
@@ -16,7 +17,29 @@ const workerController = {
 
             if (workerError) throw workerError;
 
-            // 2. Find matching payroll record
+            // 2. SQUAD INTEGRATION: Verify Bank Account
+            let accountVerified = false;
+            try {
+                const verification = await squadService.verifyBankAccount(account_number, bank_code);
+                if (verification && verification.data && verification.data.account_name) {
+                    // Check if names match loosely (you can make this stricter)
+                    const squadName = verification.data.account_name.toLowerCase();
+                    const workerName = worker.full_name.toLowerCase();
+                    
+                    if (squadName.includes(workerName.split(' ')[0]) || workerName.includes(squadName.split(' ')[0])) {
+                        accountVerified = true;
+                    } else {
+                        return res.status(400).json({ 
+                            error: `Bank account name (${verification.data.account_name}) does not match your registered name (${worker.full_name})` 
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn('Squad verification failed, proceeding with caution:', err.message);
+                // In production, you might want to block here
+            }
+
+            // 3. Find matching payroll record
             // Matching logic: NIN and Account Number
             const { data: payrollRecord, error: payrollError } = await supabaseAdmin
                 .from('payroll_workers')
@@ -34,7 +57,7 @@ const workerController = {
                 });
             }
 
-            // 3. Update worker profile with bank details
+            // 4. Update worker profile with bank details
             const { error: updateWorkerError } = await supabaseAdmin
                 .from('workers')
                 .update({ account_number, bank_name })
@@ -42,7 +65,7 @@ const workerController = {
 
             if (updateWorkerError) throw updateWorkerError;
 
-            // 4. Mark payroll record as claimed
+            // 5. Mark payroll record as claimed
             const { error: updatePayrollError } = await supabaseAdmin
                 .from('payroll_workers')
                 .update({ worker_claimed: true })
@@ -52,7 +75,8 @@ const workerController = {
 
             res.status(200).json({
                 message: 'Payroll record claimed successfully',
-                payrollRecord
+                payrollRecord,
+                squad_verified: accountVerified
             });
 
         } catch (error) {
