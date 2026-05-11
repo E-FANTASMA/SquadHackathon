@@ -1,0 +1,84 @@
+# dependencies
+node_modules/
+
+database/
+.sql
+
+#testing files
+.py
+
+# environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# runtime files
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# coverage
+coverage/
+
+# build folders
+dist/
+build/
+
+# uploads
+uploads/
+temp/
+tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs/editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# testing
+.nyc_output/
+
+# cache
+.cache/
+.parcel-cache/
+
+# Supabase
+.supabase/
+
+# dotenv
+.env.*
+
+# optional frontend folders
+.next/
+out/
+
+# TypeScript
+*.tsbuildinfo
+
+# generated files
+*.csv
+*.xlsx
+*.pdf
+
+# local database files
+*.sqlite
+*.sqlite3
