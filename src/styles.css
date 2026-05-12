@@ -1,0 +1,156 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-risk-low: var(--risk-low);
+  --color-risk-medium: var(--risk-medium);
+  --color-risk-high: var(--risk-high);
+  --color-squad-locked: var(--squad-locked);
+  --color-squad-held: var(--squad-held);
+  --color-squad-released: var(--squad-released);
+  --color-status-verified: var(--status-verified);
+  --color-status-pending: var(--status-pending);
+  --color-status-flagged: var(--status-flagged);
+  --color-status-rejected: var(--status-rejected);
+}
+
+:root {
+  --radius: 0.625rem;
+  /* Trust-centric enterprise FinTech palette */
+  --background: oklch(0.985 0.005 240);
+  --foreground: oklch(0.21 0.04 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.04 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.04 260);
+  --primary: oklch(0.32 0.12 264);
+  --primary-foreground: oklch(0.98 0.005 240);
+  --secondary: oklch(0.95 0.015 250);
+  --secondary-foreground: oklch(0.28 0.06 260);
+  --muted: oklch(0.96 0.01 250);
+  --muted-foreground: oklch(0.5 0.03 255);
+  --accent: oklch(0.92 0.04 250);
+  --accent-foreground: oklch(0.28 0.08 260);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.98 0.005 240);
+  --border: oklch(0.92 0.012 250);
+  --input: oklch(0.92 0.012 250);
+  --ring: oklch(0.55 0.15 264);
+
+  --surface-elevated: oklch(0.99 0.005 250);
+
+  /* Risk semantic */
+  --risk-low: oklch(0.62 0.16 150);
+  --risk-medium: oklch(0.76 0.16 75);
+  --risk-high: oklch(0.6 0.22 25);
+
+  /* Squad gate semantic */
+  --squad-locked: oklch(0.6 0.22 25);
+  --squad-held: oklch(0.74 0.16 75);
+  --squad-released: oklch(0.62 0.16 150);
+
+  /* Verification status */
+  --status-verified: oklch(0.62 0.16 150);
+  --status-pending: oklch(0.62 0.05 250);
+  --status-flagged: oklch(0.74 0.16 75);
+  --status-rejected: oklch(0.6 0.22 25);
+
+  /* Gradients & shadows */
+  --gradient-primary: linear-gradient(135deg, oklch(0.32 0.12 264), oklch(0.45 0.15 260));
+  --gradient-hero: linear-gradient(140deg, oklch(0.22 0.08 264) 0%, oklch(0.32 0.12 264) 50%, oklch(0.45 0.16 260) 100%);
+  --gradient-trust: linear-gradient(180deg, oklch(0.985 0.005 240), oklch(0.96 0.015 250));
+  --shadow-elegant: 0 10px 30px -12px color-mix(in oklab, oklch(0.32 0.12 264) 30%, transparent);
+  --shadow-card: 0 1px 3px color-mix(in oklab, oklch(0.21 0.04 260) 8%, transparent), 0 4px 16px color-mix(in oklab, oklch(0.21 0.04 260) 4%, transparent);
+
+  --sidebar: oklch(0.99 0.005 240);
+  --sidebar-foreground: oklch(0.21 0.04 260);
+  --sidebar-primary: oklch(0.32 0.12 264);
+  --sidebar-primary-foreground: oklch(0.98 0.005 240);
+  --sidebar-accent: oklch(0.95 0.015 250);
+  --sidebar-accent-foreground: oklch(0.28 0.06 260);
+  --sidebar-border: oklch(0.92 0.012 250);
+  --sidebar-ring: oklch(0.55 0.15 264);
+}
+
+.dark {
+  --background: oklch(0.16 0.03 260);
+  --foreground: oklch(0.98 0.005 240);
+  --card: oklch(0.22 0.04 260);
+  --card-foreground: oklch(0.98 0.005 240);
+  --popover: oklch(0.22 0.04 260);
+  --popover-foreground: oklch(0.98 0.005 240);
+  --primary: oklch(0.7 0.16 260);
+  --primary-foreground: oklch(0.16 0.03 260);
+  --secondary: oklch(0.28 0.05 260);
+  --secondary-foreground: oklch(0.98 0.005 240);
+  --muted: oklch(0.26 0.04 260);
+  --muted-foreground: oklch(0.7 0.03 255);
+  --accent: oklch(0.3 0.06 260);
+  --accent-foreground: oklch(0.98 0.005 240);
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.98 0.005 240);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.6 0.16 260);
+  --surface-elevated: oklch(0.24 0.04 260);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  body { background-color: var(--color-background); color: var(--color-foreground); font-feature-settings: "cv02","cv03","cv04"; }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+.scanline { position: relative; overflow: hidden; }
+.scanline::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent, color-mix(in oklab, var(--color-primary) 40%, transparent), transparent);
+  height: 40%;
+  animation: scanline 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 40%, transparent); }
+  70% { box-shadow: 0 0 0 12px color-mix(in oklab, var(--color-primary) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.pulse-ring { animation: pulse-ring 2s ease-out infinite; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+}
