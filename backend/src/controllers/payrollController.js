@@ -1,8 +1,301 @@
 const xlsx = require('xlsx');
 const { supabaseAdmin } = require('../config/supabase');
 const storageUtils = require('../utils/storageUtils');
+const squadService = require('../services/squadService');
+const VirtualAccount = require('../models/VirtualAccount');
+const Transfer = require('../models/Transfer');
+const AuditLog = require('../models/AuditLog');
+const { v4: uuidv4 } = require('uuid');
 
 const payrollController = {
+    /**
+     * Create a Virtual Account for a Ministry/Agency
+     * POST /api/payroll/create-virtual-account
+     */
+    createVirtualAccount: async (req, res) => {
+        try {
+            const { ministry_name, board_name, mobile_num, dob, email, bvn, ministry_id } = req.body;
+
+            // 1. Call Squad API to create virtual account
+            const squadResponse = await squadService.createVirtualAccount({
+                first_name: ministry_name,
+                last_name: board_name,
+                mobile_num,
+                dob,
+                email,
+                bvn,
+                ministry_id
+            });
+
+            if (squadResponse.status !== 200) {
+                throw new Error(squadResponse.message || 'Failed to create virtual account with Squad');
+            }
+
+            const { account_name, account_number, bank_name, virtual_account_reference } = squadResponse.data;
+
+            // 2. Store in database
+            const virtualAccount = await VirtualAccount.create({
+                ministry_id,
+                ministry_name,
+                account_name,
+                account_number,
+                bank_name,
+                virtual_account_reference
+            });
+
+            // 3. Log the event
+            await AuditLog.log(
+                'VIRTUAL_ACCOUNT_CREATED',
+                `Created virtual account for ${ministry_name}`,
+                req.user?.id,
+                { virtual_account_reference, account_number }
+            );
+
+            res.status(201).json({
+                message: 'Virtual account created successfully',
+                data: virtualAccount
+            });
+
+        } catch (error) {
+            console.error('Create Virtual Account error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Disburse salary to approved workers
+     * POST /api/payroll/disburse
+     */
+    disburse: async (req, res) => {
+        try {
+            const { workerRecordId, bank_code } = req.body;
+
+            // 1. Fetch worker record and check AI approval status
+            const { data: worker, error: workerError } = await supabaseAdmin
+                .from('payroll_workers')
+                .select('*, payroll_batches(batch_name)')
+                .eq('id', workerRecordId)
+                .single();
+
+            if (workerError || !worker) {
+                return res.status(404).json({ error: 'Worker record not found' });
+            }
+
+            // CORE RULE: NO AI APPROVAL = NO PAYMENT
+            if (worker.verification_status !== 'verified') {
+                await AuditLog.log(
+                    'PAYMENT_BLOCKED',
+                    `Payment blocked for worker ${worker.full_name} due to lack of AI approval.`,
+                    req.user?.id,
+                    { worker_id: worker.id, status: worker.verification_status }
+                );
+                return res.status(403).json({ 
+                    error: 'Payment blocked: Worker has not been approved by the AI risk engine.' 
+                });
+            }
+
+            // 2. Generate unique reference
+            const baseReference = uuidv4();
+
+            // 3. MANDATORY: Perform Account Lookup before transfer
+            const lookupResponse = await squadService.accountLookup(bank_code, worker.account_number);
+            
+            if (!lookupResponse.success || !lookupResponse.data) {
+                await AuditLog.log(
+                    'TRANSFER_FAILED',
+                    `Account lookup failed for worker ${worker.full_name}`,
+                    req.user?.id,
+                    { worker_id: worker.id, bank_code, account_number: worker.account_number }
+                );
+                return res.status(400).json({ 
+                    error: 'Account lookup failed. Please verify the bank details.',
+                    details: lookupResponse.message 
+                });
+            }
+
+            const verifiedAccountName = lookupResponse.data.account_name;
+
+            // 4. Initiate Squad Transfer using the verified account name
+            const squadResponse = await squadService.disburseFunds(
+                worker.salary_amount,
+                bank_code,
+                worker.account_number,
+                verifiedAccountName,
+                baseReference
+            );
+
+            // 5. Store transfer record
+            const transferReference = `${process.env.SQUAD_MERCHANT_ID || 'MERCHANT_ID'}_${baseReference}`;
+            const transferData = {
+                worker_id: worker.id,
+                worker_name: worker.full_name,
+                account_number: worker.account_number,
+                bank_code,
+                amount: worker.salary_amount,
+                payroll_batch_id: worker.payroll_batch_id,
+                transfer_reference: transferReference,
+                squad_transaction_ref: squadResponse.data?.transaction_reference,
+                status: squadResponse.status === 200 ? 'success' : 'failed',
+                error_log: squadResponse.status !== 200 ? squadResponse.message : null
+            };
+
+            const transfer = await Transfer.create(transferData);
+
+            // 5. Log the outcome
+            const eventType = squadResponse.status === 200 ? 'TRANSFER_SUCCESS' : 'TRANSFER_FAILED';
+            await AuditLog.log(
+                eventType,
+                `${eventType === 'TRANSFER_SUCCESS' ? 'Successful' : 'Failed'} transfer to ${worker.full_name}`,
+                req.user?.id,
+                { transfer_reference: transferReference, amount: worker.salary_amount }
+            );
+
+            if (squadResponse.status !== 200) {
+                return res.status(400).json({ 
+                    error: 'Transfer failed', 
+                    details: squadResponse.message 
+                });
+            }
+
+            res.status(200).json({
+                message: 'Disbursement initiated successfully',
+                transfer
+            });
+
+        } catch (error) {
+            console.error('Disbursement error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Initiate funding for a payroll batch
+     * POST /api/payroll/initiate-funding
+     */
+    initiateFunding: async (req, res) => {
+        try {
+            const { batchId, email } = req.body;
+
+            // 1. Get batch details
+            const { data: batch, error: batchError } = await supabaseAdmin
+                .from('payroll_batches')
+                .select('*')
+                .eq('id', batchId)
+                .single();
+
+            if (batchError || !batch) {
+                return res.status(404).json({ error: 'Payroll batch not found' });
+            }
+
+            // 2. Initiate payment via Squad
+            const transactionRef = `FUND-${uuidv4()}`;
+            const squadResponse = await squadService.initiatePayment({
+                amount: batch.total_amount,
+                email: email || 'finance@ministry.gov.ng',
+                transaction_ref: transactionRef,
+                metadata: { batch_id: batchId, event_type: 'PAYROLL_FUNDING' }
+            });
+
+            // 3. Log event
+            await AuditLog.log(
+                'FUNDING_INITIATED',
+                `Funding initiated for batch ${batch.batch_name}`,
+                req.user?.id,
+                { batch_id: batchId, transaction_ref: transactionRef, amount: batch.total_amount }
+            );
+
+            res.status(200).json({
+                message: 'Funding initiated. Please complete payment using the checkout URL.',
+                checkout_url: squadResponse.data.checkout_url,
+                transaction_ref: transactionRef
+            });
+
+        } catch (error) {
+            console.error('Initiate funding error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Simulate a funding payment (Sandbox only)
+     * POST /api/payroll/simulate-funding
+     */
+    simulateFunding: async (req, res) => {
+        try {
+            const { virtual_account_number, amount, batchId } = req.body;
+
+            // 1. Call Squad simulate API
+            const squadResponse = await squadService.simulatePayment(virtual_account_number, amount);
+
+            // 2. Update batch status in database to 'funded'
+            const { error: updateError } = await supabaseAdmin
+                .from('payroll_batches')
+                .update({ status: 'funded' })
+                .eq('id', batchId);
+
+            if (updateError) throw updateError;
+
+            // 3. Log success
+            await AuditLog.log(
+                'FUNDING_SUCCESS',
+                `Successfully simulated funding for batch ${batchId}`,
+                req.user?.id,
+                { batch_id: batchId, amount, virtual_account_number }
+            );
+
+            res.status(200).json({
+                message: 'Payment simulation successful. Batch is now funded.',
+                data: squadResponse.data
+            });
+
+        } catch (error) {
+            console.error('Simulate funding error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Verify a transfer status
+     * GET /api/payroll/verify/:reference
+     */
+    verifyTransfer: async (req, res) => {
+        try {
+            const { reference } = req.params;
+
+            // 1. Call Squad to verify
+            const squadResponse = await squadService.verifyTransaction(reference);
+
+            // 2. Update transfer record in DB
+            const updateData = {
+                verification_status: 'verified',
+                verified_at: new Date().toISOString(),
+                status: squadResponse.data?.transaction_status === 'success' ? 'success' : 'failed'
+            };
+
+            const updatedTransfer = await Transfer.update(reference, updateData);
+
+            // 3. Log verification
+            await AuditLog.log(
+                'TRANSFER_VERIFIED',
+                `Verified status for transfer ${reference}`,
+                req.user?.id,
+                { reference, status: updatedTransfer.status }
+            );
+
+            res.status(200).json({
+                message: 'Transfer verified',
+                data: updatedTransfer,
+                squadDetails: squadResponse.data
+            });
+
+        } catch (error) {
+            console.error('Verification error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // --- Original methods preserved ---
+
     uploadPayroll: async (req, res) => {
         try {
             const { batch_name } = req.body;
@@ -16,7 +309,6 @@ const payrollController = {
                 return res.status(400).json({ error: 'Batch name is required' });
             }
 
-            // 1. Parse Excel file
             const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
@@ -26,7 +318,6 @@ const payrollController = {
                 return res.status(400).json({ error: 'Excel file is empty' });
             }
 
-            // Validate columns
             const requiredColumns = ['full_name', 'nin', 'account_number', 'salary_amount'];
             const firstRow = data[0];
             for (const col of requiredColumns) {
@@ -35,11 +326,9 @@ const payrollController = {
                 }
             }
 
-            // 2. Upload file to Supabase Storage
             const fileName = `${company_id}/${Date.now()}_${req.file.originalname}`;
             await storageUtils.uploadFile('payroll_excels', fileName, req.file.buffer, req.file.mimetype);
 
-            // 3. Create Payroll Batch
             const total_workers = data.length;
             const total_amount = data.reduce((sum, row) => sum + parseFloat(row.salary_amount || 0), 0);
 
@@ -59,7 +348,6 @@ const payrollController = {
 
             if (batchError) throw batchError;
 
-            // 4. Create Payroll Workers
             const payrollWorkers = data.map(row => ({
                 payroll_batch_id: batchData.id,
                 full_name: row.full_name,
@@ -127,14 +415,13 @@ const payrollController = {
 
     updateWorkerStatus: async (req, res) => {
         try {
-            const { workerRecordId, status } = req.body; // status: 'verified', 'rejected', 'flagged'
+            const { workerRecordId, status } = req.body;
             const company_id = req.profile.company_id;
 
             if (!['verified', 'rejected', 'flagged'].includes(status)) {
                 return res.status(400).json({ error: 'Invalid status' });
             }
 
-            // Update the payroll_worker record
             const { data, error } = await supabaseAdmin
                 .from('payroll_workers')
                 .update({ verification_status: status })

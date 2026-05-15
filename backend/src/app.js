@@ -19,7 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/company', payrollRoutes);
+app.use('/api/payroll', payrollRoutes);
 app.use('/api/worker', workerRoutes);
 app.use('/api/payment', paymentRoutes);
 

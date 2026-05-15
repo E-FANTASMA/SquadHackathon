@@ -1,64 +1,59 @@
-# Payroll Verification & Anti-Ghost-Worker System Backend
+# PayGuard AI Backend Integration
 
-This is the backend built with Node.js, Express, Supabase, and Squad API.
+This is the backend for the PayGuard AI platform, built with Node.js, Express, Supabase, and Squad API.
 
 ## Tech Stack
 - **Node.js & Express.js**: Backend framework.
-- **Supabase**: Authentication, PostgreSQL database, and File Storage.
-- **Squad API**: Payment processing, wallet funding, and worker verification.
+- **Supabase**: Authentication, PostgreSQL database (RLS enabled), and File Storage.
+- **Squad API**: Payment initiation, account lookup, and salary disbursement.
 - **xlsx**: Excel file parsing for payroll uploads.
 
----
+## Environment Variables
+Create a `.env` file in the `backend/` directory:
+```env
+PORT=5000
+DISABLE_AUTH=true # Toggle to 'false' for production JWT verification
 
-## Getting Started
+# Supabase
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 
-### 1. Prerequisites
-- Node.js installed.
-- A Supabase account and project.
-- A Squad API account (Sandbox or Live).
+# Squad API
+SQUAD_SECRET_KEY=your_squad_secret_key
+SQUAD_BASE_URL=https://sandbox-api-d.squadco.com
+SQUAD_MERCHANT_ID=SQ-PAYGUARD # Fallback merchant ID for references
+```
 
-## API Endpoints & Testing Guide
+## API Endpoints
 
-### Authentication Flow
-1. **Company Signup**: `POST /api/auth/company/signup`
-   - Body: `{ "company_name", "email", "password", "phone_number" }`
-2. **Worker Signup**: `POST /api/auth/worker/signup`
-   - Body: `{ "full_name", "nin", "email", "password", "phone_number" }`
-3. **Login**: `POST /api/auth/company/login` (Universal)
-   - Action: Copy the `access_token` from the response.
+### 1. Payroll & Funding (`/api/payroll`)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| POST | `/api/payroll/upload-payroll` | Upload master payroll Excel file. |
+| GET | `/api/payroll/payroll-batches` | Get list of all payroll batches. |
+| POST | `/api/payroll/initiate-funding` | Generate a Squad checkout URL to fund a batch. |
+| POST | `/api/payroll/simulate-funding` | (Sandbox) Mock a successful payment into a batch. |
+| POST | `/api/payroll/disburse` | **AI-Gated:** Pay verified workers via Squad Transfer. |
+| GET | `/api/payroll/verify/:reference` | Verify transfer status with Squad. |
 
-### Headers for Protected Routes
-All protected routes require an Authorization header:
-`Authorization: Bearer <your_access_token>`
+### 2. Authentication (`/api/auth`)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| POST | `/api/auth/company/signup` | Signup for Government Ministry/Department. |
+| POST | `/api/auth/worker/signup` | Signup for individual workers. |
+| POST | `/api/auth/company/login` | Universal login (returns JWT). |
 
-### Company Actions (Admin)
-- **Upload Payroll**: `POST /api/company/upload-payroll`
-  - Body (form-data): `batch_name` (text), `payroll_file` (file)
-  - Excel Columns: `full_name`, `nin`, `account_number`, `salary_amount`
-- **View Batches**: `GET /api/company/payroll-batches`
-- **View Workers in Batch**: `GET /api/company/batch-workers/:batchId`
-- **Update Worker Status**: `POST /api/company/update-worker-status`
-  - Body: `{ "workerRecordId", "status" }` (status: `verified`, `rejected`, `flagged`)
-- **Fund Batch**: `POST /api/payment/fund-batch`
-  - Body: `{ "batchId" }`
-  - Returns a Squad checkout URL.
+### 3. Worker Portal (`/api/worker`)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| POST | `/api/worker/claim-record` | Match bank details to an uploaded payroll entry. |
+| POST | `/api/worker/upload-documents` | Upload ID proof for AI/Admin verification. |
+| GET | `/api/worker/status` | Check verification and payment progress. |
 
-### Worker Actions
-- **Claim Record**: `POST /api/worker/claim-record`
-  - Body: `{ "account_number", "bank_code", "bank_name" }`
-  - *Must match NIN and Account Number in an uploaded payroll.*
-- **Upload Documents**: `POST /api/worker/upload-documents`
-  - Body (form-data): `statement` (file), `screenshot` (file)
-- **Check Status**: `GET /api/worker/status`
+## Core Logic: "NO AI APPROVAL = NO PAYMENT"
+The disbursement logic in `controllers/payrollController.js` ensures that `squadService.disburseFunds` is only called if the worker's status is `verified`. Every step of the funding and disbursement process is recorded in the `audit_logs` table for full transparency.
 
-### Simulating Payments (Webhook)
-To simulate a successful payment in development:
-- `POST /api/payment/webhook`
-- Body: `{ "event": "charge.success", "metadata": { "batch_id": "UUID_HERE" } }`
-
----
-
-## Important Notes
-- **Verification Engine**: The logic for parsing statements and screenshots is handled separately. The `verification_status` in the `workers` and `payroll_workers` tables should be updated by the verification engine to `verified`, `flagged`, or `rejected`.
-- **Security**: RLS policies are enabled on Supabase tables to ensure users can only access their own data.
-- **Squad API**: Ensure you use the correct environment (Sandbox vs Live) and have funded your Squad test wallet for disbursements.
+## Testing
+- Use the `SAMPLE_REQUESTS.md` file for example cURL commands.
+- Use `000013` (GTBank) as the bank code for stable testing in the Squad sandbox.

@@ -82,3 +82,6 @@ out/
 # local database files
 *.sqlite
 *.sqlite3
+
+.md
+!README.md

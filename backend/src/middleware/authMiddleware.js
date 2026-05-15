@@ -1,6 +1,18 @@
 const { supabase } = require('../config/supabase');
 
 const authMiddleware = async (req, res, next) => {
+    // Toggle for testing without JWT
+    if (process.env.DISABLE_AUTH === 'true') {
+        console.log('DEBUG: Auth disabled, bypassing JWT check.');
+        req.user = { id: '00000000-0000-0000-0000-000000000000', email: 'test@example.com' };
+        req.profile = { 
+            id: '00000000-0000-0000-0000-000000000000', 
+            role: 'company_admin',
+            company_id: req.body.ministry_id || '00000000-0000-0000-0000-000000000000' 
+        };
+        return next();
+    }
+
     try {
         const authHeader = req.headers.authorization;
 
