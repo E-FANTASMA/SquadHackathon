@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { naira } from "@/lib/format";
 import { STATUS_META, MAX_SCORE } from "@/lib/scoring";
 import { ArrowRight, FileSearch, Upload, MessageSquareWarning } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { USE_REAL_API, workerService } from "@/services/api";
 
 export const Route = createFileRoute("/worker/home")({
   head: () => ({ meta: [{ title: "My Status · PayGuard Worker" }] }),
@@ -17,7 +20,27 @@ export const Route = createFileRoute("/worker/home")({
 function WorkerHome() {
   const user = useAuthStore((s) => s.user);
   const employees = useLedgerStore((s) => s.employees);
+  const mergeEmployee = useLedgerStore((s) => s.mergeEmployeeFromApi);
   const appeals = useAppealStore((s) => s.appeals);
+
+  const employeeId = user?.matchedEmployeeId;
+  const { data: remoteStatus } = useQuery({
+    queryKey: ["worker-status", employeeId],
+    enabled: USE_REAL_API && !!employeeId,
+    queryFn: () => workerService.status(employeeId!),
+    refetchInterval: 15_000,
+  });
+
+  const remoteEmp = remoteStatus?.employee;
+  const remoteEmpKey = remoteEmp
+    ? `${remoteEmp.id}:${remoteEmp.verificationStatus}:${remoteEmp.trustScore}`
+    : "";
+
+  useEffect(() => {
+    if (!USE_REAL_API || !remoteEmp) return;
+    mergeEmployee(remoteEmp);
+  }, [remoteEmpKey, remoteEmp, mergeEmployee]);
+
   const employee = user?.matchedEmployeeId
     ? employees.find((e) => e.id === user.matchedEmployeeId)
     : undefined;

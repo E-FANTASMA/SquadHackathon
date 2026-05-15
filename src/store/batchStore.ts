@@ -29,6 +29,7 @@ interface BatchState {
   fundWallet: (amount: number) => { ok: true } | { ok: false; failure: FailedTransaction };
   recordFailure: (f: FailedTransaction) => void;
   getFailure: (ref: string) => FailedTransaction | undefined;
+  setBatches: (batches: PayrollBatch[]) => void;
 }
 
 const SQUAD_ERRORS = [
@@ -110,4 +111,5 @@ export const useBatchStore = create<BatchState>((set, get) => ({
   },
   recordFailure: (f) => set((s) => ({ failures: [f, ...s.failures] })),
   getFailure: (ref) => get().failures.find((f) => f.ref === ref),
+  setBatches: (batches) => set({ batches }),
 }));

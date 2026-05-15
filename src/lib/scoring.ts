@@ -75,3 +75,39 @@ export const STATUS_META: Record<
     description: "Payment blocked. Worker must request appeal.",
   },
 };
+
+/** Map backend `verification_status` strings into the UI bucket model. */
+export function normalizeVerificationStatus(
+  raw: string | null | undefined,
+): VerificationStatus {
+  const s = (raw ?? "").toLowerCase().replace(/\s+/g, "_");
+  if (s === "verified" || s === "approved" || s === "cleared") return "verified";
+  if (s === "flagged" || s === "review" || s === "manual_review" || s === "pending_review")
+    return "flagged";
+  if (s === "rejected" || s === "denied" || s === "blocked") return "rejected";
+  if (s === "pending" || s === "draft" || s === "") return "pending";
+  return "pending";
+}
+
+/**
+ * When the API only returns `verification_status`, synthesize a display score
+ * that stays consistent with the 110-point bands (80+ verified, 50–79 flagged).
+ */
+export function trustScoreFromStatus(
+  status: VerificationStatus,
+  apiScore?: number | null,
+): number {
+  if (typeof apiScore === "number" && !Number.isNaN(apiScore)) {
+    return Math.min(MAX_SCORE, Math.max(0, apiScore));
+  }
+  switch (status) {
+    case "verified":
+      return 95;
+    case "flagged":
+      return 65;
+    case "rejected":
+      return 35;
+    default:
+      return 0;
+  }
+}

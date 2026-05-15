@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -46,12 +46,14 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { ScoreBreakdown } from "@/components/common/ScoreBreakdown";
 import { MAX_SCORE, type VerificationChecks, type VerificationStatus } from "@/lib/scoring";
 import { toast } from "sonner";
+import { companyService, USE_REAL_API } from "@/services/api";
 
 export function LedgerTable() {
   const employees = useLedgerStore((s) => s.employees);
   const setOverride = useLedgerStore((s) => s.setOverride);
   const updateChecks = useLedgerStore((s) => s.updateChecks);
   const execute = useLedgerStore((s) => s.executeVerifiedPayments);
+  const setStatus = useLedgerStore((s) => s.setStatus);
   const pushFeed = useFeedStore((s) => s.push);
 
   const [search, setSearch] = useState("");
@@ -79,14 +81,22 @@ export function LedgerTable() {
     });
   }, [employees, search, dept, statusFilter]);
 
-  const disburseOne = (e: Employee) => {
-    if (e.verificationStatus !== "verified" && !e.override) return;
-    pushFeed({
-      kind: "released",
-      message: `Squad transfer released · ${naira(e.salary)} → ${e.id}`,
-    });
-    toast.success(`Squad transfer released to ${e.name}`);
-  };
+  const disburseOne = useCallback(
+    async (e: Employee) => {
+      const result = await companyService.disburseToWorker(e.id);
+      if (!result.ok) {
+        toast.error(result.reason);
+        return;
+      }
+      setStatus(e.id, "RELEASED");
+      pushFeed({
+        kind: "released",
+        message: `Squad transfer released · ${naira(e.salary)} → ${e.id} · ${result.ref}`,
+      });
+      toast.success(`Squad transfer released to ${e.name}`);
+    },
+    [pushFeed, setStatus],
+  );
 
   const columns = useMemo<ColumnDef<Employee>[]>(
     () => [
@@ -164,7 +174,7 @@ export function LedgerTable() {
             );
           }
           return (
-            <Button size="sm" disabled={!eligible} onClick={() => disburseOne(e)}>
+            <Button size="sm" disabled={!eligible} onClick={() => void disburseOne(e)}>
               <Send className="h-3.5 w-3.5" /> Disburse
             </Button>
           );
@@ -189,7 +199,7 @@ export function LedgerTable() {
         ),
       },
     ],
-    [expanded, setOverride, pushFeed],
+    [expanded, setOverride, pushFeed, disburseOne, setStatus],
   );
 
   const table = useReactTable({
@@ -257,9 +267,28 @@ export function LedgerTable() {
           </SelectContent>
         </Select>
         <div className="flex-1" />
-        <Button
-          onClick={() => {
-            const n = execute();
+            <Button
+          onClick={async () => {
+            if (!USE_REAL_API) {
+              const n = execute();
+              pushFeed({
+                kind: "released",
+                message: `Squad batch executed · ${n} verified payments released`,
+              });
+              toast.success(`Squad batch executed · ${n} verified payments released`);
+              return;
+            }
+            const targets = employees.filter(
+              (e) => e.verificationStatus === "verified" || e.override,
+            );
+            let n = 0;
+            for (const e of targets) {
+              const result = await companyService.disburseToWorker(e.id);
+              if (result.ok) {
+                setStatus(e.id, "RELEASED");
+                n++;
+              }
+            }
             pushFeed({
               kind: "released",
               message: `Squad batch executed · ${n} verified payments released`,

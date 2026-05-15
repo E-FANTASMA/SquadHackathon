@@ -22,6 +22,8 @@ interface LedgerState {
   submitDocs: (id: string, checks: VerificationChecks) => Employee | undefined;
   findByNinAndAccount: (nin: string, account: string) => Employee | undefined;
   executeVerifiedPayments: () => number;
+  /** Upsert a row from REST / Supabase without dropping the rest of the ledger. */
+  mergeEmployeeFromApi: (incoming: Employee) => void;
 }
 
 function recompute(e: Employee, checks: VerificationChecks, hasSubmitted = true): Employee {
@@ -80,6 +82,14 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
   },
   findByNinAndAccount: (nin, account) =>
     get().employees.find((e) => e.nin === nin && e.account === account),
+  mergeEmployeeFromApi: (incoming) =>
+    set((s) => {
+      const idx = s.employees.findIndex((e) => e.id === incoming.id);
+      if (idx === -1) return { employees: [incoming, ...s.employees] };
+      const next = [...s.employees];
+      next[idx] = incoming;
+      return { employees: next };
+    }),
   executeVerifiedPayments: () => {
     const cleared = get().employees.filter(
       (e) => e.verificationStatus === "verified" || e.override,

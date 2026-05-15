@@ -8,6 +8,7 @@ import { useFeedStore } from "@/store/feedStore";
 import { compactNaira, naira } from "@/lib/format";
 import { Wallet, ArrowUpRight, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { companyService, USE_REAL_API } from "@/services/api";
 
 export const Route = createFileRoute("/admin/wallet")({
   head: () => ({ meta: [{ title: "Squad Wallet · PayGuard Admin" }] }),
@@ -17,16 +18,18 @@ export const Route = createFileRoute("/admin/wallet")({
 function WalletPage() {
   const balance = useBatchStore((s) => s.walletBalance);
   const fund = useBatchStore((s) => s.fundWallet);
+  const recordFailure = useBatchStore((s) => s.recordFailure);
   const failures = useBatchStore((s) => s.failures);
   const pushFeed = useFeedStore((s) => s.push);
   const navigate = useNavigate();
   const [amount, setAmount] = useState("");
 
-  const submit = () => {
+  const submit = async () => {
     const value = Number(amount.replace(/,/g, ""));
     if (!value || value <= 0) return toast.error("Enter an amount greater than 0");
-    const result = fund(value);
+    const result = USE_REAL_API ? await companyService.fundWallet(value) : fund(value);
     if (!result.ok) {
+      if (USE_REAL_API) recordFailure(result.failure);
       pushFeed({
         kind: "blocked",
         message: `Squad funding failed · ${result.failure.code}`,

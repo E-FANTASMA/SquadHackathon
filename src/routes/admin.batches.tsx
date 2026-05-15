@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { useBatchStore, type BatchStatus } from "@/store/batchStore";
 import { useFeedStore } from "@/store/feedStore";
-import { naira, compactNaira } from "@/lib/format";
+import { compactNaira } from "@/lib/format";
 import { FileSpreadsheet, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { companyService, USE_REAL_API } from "@/services/api";
 
 export const Route = createFileRoute("/admin/batches")({
   head: () => ({ meta: [{ title: "Payroll Batches · PayGuard Admin" }] }),
@@ -24,28 +25,59 @@ const STATUS_COLOR: Record<BatchStatus, string> = {
 function BatchesPage() {
   const batches = useBatchStore((s) => s.batches);
   const addBatch = useBatchStore((s) => s.addBatch);
+  const setBatches = useBatchStore((s) => s.setBatches);
   const advance = useBatchStore((s) => s.advanceBatch);
   const pushFeed = useFeedStore((s) => s.push);
   const [last, setLast] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    let cancelled = false;
+    void companyService.listBatches().then((list) => {
+      if (!cancelled) setBatches(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [setBatches]);
+
   const onDrop = useCallback(
-    (files: File[]) => {
-      files.forEach((f) => {
+    async (files: File[]) => {
+      for (const f of files) {
         const workerCount = 50 + Math.floor(Math.random() * 200);
         const totalAmount = workerCount * (200_000 + Math.floor(Math.random() * 200_000));
-        const batch = addBatch({ filename: f.name, workerCount, totalAmount });
-        setLast(batch.id);
-        toast.success(`Uploaded ${f.name}`);
-        pushFeed({
-          kind: "info",
-          message: `Payroll batch uploaded · ${batch.id}`,
-        });
-        // simulate pipeline
-        setTimeout(() => advance(batch.id), 1500);
-        setTimeout(() => advance(batch.id), 3500);
-      });
+        if (USE_REAL_API) {
+          try {
+            const batch = await companyService.uploadPayroll({
+              filename: f.name,
+              workerCount,
+              totalAmount,
+            });
+            setLast(batch.id);
+            const list = await companyService.listBatches();
+            setBatches(list);
+            toast.success(`Uploaded ${f.name}`);
+            pushFeed({
+              kind: "info",
+              message: `Payroll batch uploaded · ${batch.id}`,
+            });
+          } catch (e: unknown) {
+            toast.error(e instanceof Error ? e.message : "Upload failed");
+          }
+        } else {
+          const batch = addBatch({ filename: f.name, workerCount, totalAmount });
+          setLast(batch.id);
+          toast.success(`Uploaded ${f.name}`);
+          pushFeed({
+            kind: "info",
+            message: `Payroll batch uploaded · ${batch.id}`,
+          });
+          setTimeout(() => advance(batch.id), 1500);
+          setTimeout(() => advance(batch.id), 3500);
+        }
+      }
     },
-    [addBatch, advance, pushFeed],
+    [addBatch, advance, pushFeed, setBatches],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({

@@ -11,7 +11,9 @@ import {
   Wallet,
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
+import { userDisplayName } from "@/lib/userDisplay";
 import { FileRouteTypes } from "../routeTree.gen";
+import logoMark from "@/assets/payguard-logo-mark.png";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -50,6 +52,11 @@ function Landing() {
           />
         </div>
         <div className="relative mx-auto max-w-7xl px-4 py-16 md:py-24">
+          <img
+            src={logoMark}
+            alt="PayGuard AI"
+            className="mb-6 h-16 w-16 rounded-xl bg-white/10 p-2 backdrop-blur md:h-20 md:w-20"
+          />
           <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs backdrop-blur">
             <Sparkles className="h-3.5 w-3.5" /> Built on the Squad Transfer API
           </div>
@@ -65,7 +72,7 @@ function Landing() {
           {user && (
             <div className="mt-8 inline-flex items-center gap-3 rounded-lg border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
               <span className="text-sm">
-                Welcome back, {user.fullName ?? user.companyName ?? user.email}.
+                Welcome back, {userDisplayName(user)}.
               </span>
               <Button asChild variant="secondary" size="sm">
                 <Link to={user.role === "company_admin" ? "/admin/dashboard" : "/worker/home"}>

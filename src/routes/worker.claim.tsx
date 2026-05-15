@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/store/authStore";
 import { useLedgerStore } from "@/store/ledgerStore";
+import { workerService } from "@/services/api";
 import { CheckCircle2, AlertTriangle, Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,23 +17,32 @@ export const Route = createFileRoute("/worker/claim")({
 function ClaimPage() {
   const user = useAuthStore((s) => s.user);
   const patch = useAuthStore((s) => s.patch);
-  const find = useLedgerStore((s) => s.findByNinAndAccount);
+  const mergeEmployee = useLedgerStore((s) => s.mergeEmployeeFromApi);
   const navigate = useNavigate();
 
   const [nin, setNin] = useState(user?.nin ?? "");
   const [account, setAccount] = useState("");
   const [result, setResult] = useState<"idle" | "match" | "miss">("idle");
+  const [busy, setBusy] = useState(false);
 
-  const onSearch = () => {
+  const onSearch = async () => {
     if (nin.length !== 11) return toast.error("NIN must be exactly 11 digits");
     if (account.length !== 10) return toast.error("Account number must be exactly 10 digits");
-    const match = find(nin, account);
-    if (match) {
-      patch({ matchedEmployeeId: match.id, nin });
-      setResult("match");
-      toast.success(`Matched: ${match.name}`);
-    } else {
-      setResult("miss");
+    setBusy(true);
+    try {
+      const { matched, employee } = await workerService.claimRecord({ nin, account });
+      if (matched && employee) {
+        mergeEmployee(employee);
+        patch({ matchedEmployeeId: employee.id, nin });
+        setResult("match");
+        toast.success(`Matched: ${employee.name}`);
+      } else {
+        setResult("miss");
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Lookup failed");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -74,8 +84,8 @@ function ClaimPage() {
               className="h-12 text-base tabular-nums"
             />
           </div>
-          <Button className="h-12 w-full text-base" onClick={onSearch}>
-            <Search className="h-4 w-4" /> Search payroll
+          <Button className="h-12 w-full text-base" disabled={busy} onClick={() => void onSearch()}>
+            <Search className="h-4 w-4" /> {busy ? "Searching…" : "Search payroll"}
           </Button>
           <p className="text-[11px] text-muted-foreground">
             Demo tip: try NIN <span className="font-mono">11111111111</span> or use the account on a

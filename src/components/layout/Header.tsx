@@ -1,8 +1,10 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { LogOut, ShieldCheck, User } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
+import { userDisplayName } from "@/lib/userDisplay";
 import { Button } from "@/components/ui/button";
+import logoMark from "@/assets/payguard-logo-mark.png";
 
 const ADMIN_NAV = [
   { to: "/admin/dashboard", label: "Decision Ledger" },
@@ -24,19 +26,13 @@ export function Header() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
-  const nav =
-    user?.role === "company_admin" ? ADMIN_NAV : user?.role === "worker" ? WORKER_NAV : [];
+  const nav = user?.role === "company_admin" ? ADMIN_NAV : user?.role === "worker" ? WORKER_NAV : [];
 
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4">
         <Link to="/" className="flex items-center gap-2">
-          <span
-            className="grid h-8 w-8 place-items-center rounded-md text-primary-foreground"
-            style={{ backgroundImage: "var(--gradient-primary)" }}
-          >
-            <ShieldCheck className="h-4 w-4" />
-          </span>
+          <img src={logoMark} alt="PayGuard AI logo" className="h-9 w-9 object-contain" />
           <div className="leading-tight">
             <div className="text-sm font-semibold tracking-tight">PayGuard AI</div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -71,7 +67,7 @@ export function Header() {
           {user ? (
             <>
               <div className="hidden text-right text-xs leading-tight md:block">
-                <div className="font-medium">{user.fullName ?? user.companyName ?? user.email}</div>
+                <div className="font-medium">{userDisplayName(user)}</div>
                 <div className="text-muted-foreground">
                   {user.role === "company_admin" ? "Company Admin" : "Worker"}
                 </div>
@@ -81,8 +77,10 @@ export function Header() {
                 size="icon"
                 aria-label="Sign out"
                 onClick={() => {
-                  logout();
-                  navigate({ to: "/" });
+                  void (async () => {
+                    await logout();
+                    navigate({ to: "/" });
+                  })();
                 }}
               >
                 <LogOut className="h-4 w-4" />
@@ -96,9 +94,7 @@ export function Header() {
                 </Link>
               </Button>
               <Button asChild size="sm">
-                <Link to="/auth/signup" search={{ role: "worker" }}>
-                  Get started
-                </Link>
+                <Link to="/auth/signup" search={{ role: "worker" }}>Get started</Link>
               </Button>
             </>
           )}

@@ -9,6 +9,9 @@ import { StatusPill } from "@/components/common/StatusPill";
 import { FileText, ImageIcon, Lock, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { calcScore, statusFromScore, MAX_SCORE, type VerificationChecks } from "@/lib/scoring";
+import { USE_SUPABASE } from "@/lib/env";
+import { workerService } from "@/services/api";
+import { uploadWorkerEvidence } from "@/lib/supabase/workerUploads";
 
 export const Route = createFileRoute("/worker/documents")({
   head: () => ({ meta: [{ title: "My Documents · PayGuard Worker" }] }),
@@ -22,6 +25,7 @@ function DocumentsPage() {
     ? employees.find((e) => e.id === user.matchedEmployeeId)
     : undefined;
   const submitDocs = useLedgerStore((s) => s.submitDocs);
+  const mergeEmployee = useLedgerStore((s) => s.mergeEmployeeFromApi);
   const pushFeed = useFeedStore((s) => s.push);
 
   const [statementFile, setStatementFile] = useState<File | null>(null);
@@ -44,9 +48,8 @@ function DocumentsPage() {
 
   const locked = employee.verificationStatus === "rejected" && !employee.override;
 
-  const submit = () => {
+  const submit = async () => {
     if (!statementFile && !screenshotFile) return toast.error("Upload at least one document");
-    // Simulated AI scoring: each upload awards a check
     const newChecks: VerificationChecks = {
       ninVerified: true,
       nameMatch: true,
@@ -56,21 +59,36 @@ function DocumentsPage() {
       txnRefValid: !!statementFile && !!screenshotFile,
     };
     const finalScore = calcScore(newChecks);
-    runTally(finalScore, () => {
-      submitDocs(employee.id, newChecks);
-      pushFeed({
-        kind: "info",
-        message: `Worker submitted documents · ${employee.id} · score ${finalScore}`,
-      });
-      const status = statusFromScore(finalScore, true);
-      if (status === "verified") toast.success(`Verified! Trust score ${finalScore}/${MAX_SCORE}`);
-      else if (status === "flagged")
-        toast.warning(`Flagged for review · score ${finalScore}/${MAX_SCORE}`);
-      else toast.error(`Rejected · score ${finalScore}/${MAX_SCORE}`);
+    runTally(finalScore, async () => {
+      try {
+        const uploads =
+          USE_SUPABASE && user?.id
+            ? await uploadWorkerEvidence({
+                authUserId: user.id,
+                employeeId: employee.id,
+                statementFile,
+                screenshotFile,
+              })
+            : {};
+        const updated = await workerService.submitDocuments(employee.id, newChecks, uploads);
+        if (updated) mergeEmployee(updated);
+        else submitDocs(employee.id, newChecks);
+        pushFeed({
+          kind: "info",
+          message: `Worker submitted documents · ${employee.id} · score ${finalScore}`,
+        });
+        const st = statusFromScore(finalScore, true);
+        if (st === "verified") toast.success(`Verified! Trust score ${finalScore}/${MAX_SCORE}`);
+        else if (st === "flagged")
+          toast.warning(`Flagged for review · score ${finalScore}/${MAX_SCORE}`);
+        else toast.error(`Rejected · score ${finalScore}/${MAX_SCORE}`);
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Submit failed");
+      }
     });
   };
 
-  const runTally = (target: number, done: () => void) => {
+  const runTally = (target: number, done: () => void | Promise<void>) => {
     setTally(0);
     let v = 0;
     const step = Math.max(1, Math.round(target / 25));
@@ -79,8 +97,8 @@ function DocumentsPage() {
       setTally(v);
       if (v >= target) {
         clearInterval(id);
-        setTimeout(() => {
-          done();
+        setTimeout(async () => {
+          await Promise.resolve(done());
           setTally(null);
         }, 600);
       }
@@ -145,7 +163,7 @@ function DocumentsPage() {
 
       <Button
         className="mt-5 h-12 w-full text-base"
-        onClick={submit}
+        onClick={() => void submit()}
         disabled={locked || tally !== null}
       >
         <Upload className="h-4 w-4" /> Submit for AI verification

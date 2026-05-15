@@ -1,8 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useBatchStore } from "@/store/batchStore";
+import { useEffect, useState } from "react";
+import { useBatchStore, type FailedTransaction } from "@/store/batchStore";
 import { Button } from "@/components/ui/button";
 import { naira } from "@/lib/format";
 import { AlertTriangle, ArrowLeft, RefreshCcw } from "lucide-react";
+import { companyService, USE_REAL_API } from "@/services/api";
 
 export const Route = createFileRoute("/admin/transaction-failed/$ref")({
   head: () => ({ meta: [{ title: "Transaction Failed · PayGuard Admin" }] }),
@@ -34,7 +36,31 @@ const FIXES: Record<string, string[]> = {
 
 function FailurePage() {
   const { ref } = Route.useParams();
-  const failure = useBatchStore((s) => s.getFailure(ref));
+  const failureFromStore = useBatchStore((s) => s.getFailure(ref));
+  const recordFailure = useBatchStore((s) => s.recordFailure);
+  const [remoteFailure, setRemoteFailure] = useState<FailedTransaction | null>(null);
+  const [remoteLoaded, setRemoteLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    let cancelled = false;
+    void companyService
+      .getFailedTransaction(ref)
+      .then((f) => {
+        if (cancelled) return;
+        setRemoteFailure(f);
+        if (f) recordFailure(f);
+        setRemoteLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ref, recordFailure]);
+
+  const failure = USE_REAL_API ? remoteFailure : failureFromStore;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
@@ -90,10 +116,13 @@ function FailurePage() {
               ))}
             </ol>
           </>
+        ) : USE_REAL_API && !remoteLoaded ? (
+          <p className="mt-6 text-sm text-muted-foreground">Loading failure details…</p>
         ) : (
           <p className="mt-6 text-sm text-muted-foreground">
             No failure record found for reference <span className="font-mono">{ref}</span>. It may
-            have been cleared from this session.
+            have been cleared from this session
+            {USE_REAL_API ? " or does not exist in payment_webhooks / payments." : "."}
           </p>
         )}
 
