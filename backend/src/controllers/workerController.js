@@ -60,7 +60,7 @@ const workerController = {
             // 4. Update worker profile with bank details
             const { error: updateWorkerError } = await supabaseAdmin
                 .from('workers')
-                .update({ account_number, bank_name })
+                .update({ account_number, bank_name, bank_code })
                 .eq('id', worker.id);
 
             if (updateWorkerError) throw updateWorkerError;
@@ -152,16 +152,27 @@ const workerController = {
     getStatus: async (req, res) => {
         try {
             const user_id = req.user.id;
+            const { employeeId } = req.query;
 
-            const { data, error } = await supabaseAdmin
+            let query = supabaseAdmin
                 .from('workers')
-                .select('*, worker_uploads(*)')
-                .eq('user_id', user_id)
-                .single();
+                .select('*, worker_uploads(*)');
+
+            if (employeeId) {
+                query = query.eq('id', employeeId);
+            } else {
+                query = query.eq('user_id', user_id);
+            }
+
+            const { data, error } = await query.single();
 
             if (error) throw error;
 
-            res.status(200).json(data);
+            res.status(200).json({
+                status: data.verification_status || 'pending',
+                trustScore: data.trust_score || 0,
+                employee: data
+            });
         } catch (error) {
             console.error('Get status error:', error);
             res.status(500).json({ error: error.message });

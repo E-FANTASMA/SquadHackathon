@@ -15,6 +15,10 @@ router.post('/upload-documents', upload.fields([
     { name: 'statement', maxCount: 1 },
     { name: 'screenshot', maxCount: 1 }
 ]), workerController.uploadDocuments);
+router.post('/submit-documents', upload.fields([
+    { name: 'statement', maxCount: 1 },
+    { name: 'screenshot', maxCount: 1 }
+]), workerController.uploadDocuments); // Alias for frontend
 router.get('/status', workerController.getStatus);
 
 module.exports = router;

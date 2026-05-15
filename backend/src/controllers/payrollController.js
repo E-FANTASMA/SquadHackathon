@@ -68,17 +68,38 @@ const payrollController = {
      */
     disburse: async (req, res) => {
         try {
-            const { workerRecordId, bank_code } = req.body;
+            const { workerRecordId, employeeId, bank_code } = req.body;
+            const id = workerRecordId || employeeId;
+
+            if (!id) {
+                return res.status(400).json({ error: 'Worker ID is required' });
+            }
 
             // 1. Fetch worker record and check AI approval status
             const { data: worker, error: workerError } = await supabaseAdmin
                 .from('payroll_workers')
                 .select('*, payroll_batches(batch_name)')
-                .eq('id', workerRecordId)
+                .eq('id', id)
                 .single();
 
             if (workerError || !worker) {
                 return res.status(404).json({ error: 'Worker record not found' });
+            }
+
+            // Fetch bank_code from workers table if not provided
+            let finalBankCode = bank_code;
+            if (!finalBankCode) {
+                const { data: workerProfile, error: profileError } = await supabaseAdmin
+                    .from('workers')
+                    .select('bank_code')
+                    .eq('nin', worker.nin)
+                    .single();
+                
+                if (workerProfile && workerProfile.bank_code) {
+                    finalBankCode = workerProfile.bank_code;
+                } else {
+                    return res.status(400).json({ error: 'Bank code is required for disbursement' });
+                }
             }
 
             // CORE RULE: NO AI APPROVAL = NO PAYMENT
@@ -98,14 +119,14 @@ const payrollController = {
             const baseReference = uuidv4();
 
             // 3. MANDATORY: Perform Account Lookup before transfer
-            const lookupResponse = await squadService.accountLookup(bank_code, worker.account_number);
+            const lookupResponse = await squadService.accountLookup(finalBankCode, worker.account_number);
             
             if (!lookupResponse.success || !lookupResponse.data) {
                 await AuditLog.log(
                     'TRANSFER_FAILED',
                     `Account lookup failed for worker ${worker.full_name}`,
                     req.user?.id,
-                    { worker_id: worker.id, bank_code, account_number: worker.account_number }
+                    { worker_id: worker.id, bank_code: finalBankCode, account_number: worker.account_number }
                 );
                 return res.status(400).json({ 
                     error: 'Account lookup failed. Please verify the bank details.',
@@ -118,7 +139,7 @@ const payrollController = {
             // 4. Initiate Squad Transfer using the verified account name
             const squadResponse = await squadService.disburseFunds(
                 worker.salary_amount,
-                bank_code,
+                finalBankCode,
                 worker.account_number,
                 verifiedAccountName,
                 baseReference
@@ -130,7 +151,7 @@ const payrollController = {
                 worker_id: worker.id,
                 worker_name: worker.full_name,
                 account_number: worker.account_number,
-                bank_code,
+                bank_code: finalBankCode,
                 amount: worker.salary_amount,
                 payroll_batch_id: worker.payroll_batch_id,
                 transfer_reference: transferReference,
@@ -165,6 +186,48 @@ const payrollController = {
         } catch (error) {
             console.error('Disbursement error:', error);
             res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * General wallet funding (not tied to a batch)
+     * POST /api/company/wallet/fund
+     */
+    fundWallet: async (req, res) => {
+        try {
+            const { amount, email } = req.body;
+
+            if (!amount || amount <= 0) {
+                return res.status(400).json({ error: 'Valid amount is required' });
+            }
+
+            // Initiate payment via Squad
+            const transactionRef = `WAL-${uuidv4()}`;
+            const squadResponse = await squadService.initiatePayment({
+                amount: amount,
+                email: email || req.user?.email || 'finance@ministry.gov.ng',
+                transaction_ref: transactionRef,
+                metadata: { event_type: 'WALLET_FUNDING' }
+            });
+
+            // Log event
+            await AuditLog.log(
+                'WALLET_FUNDING_INITIATED',
+                `Wallet funding initiated for ${amount}`,
+                req.user?.id,
+                { transaction_ref: transactionRef, amount }
+            );
+
+            res.status(200).json({
+                ok: true,
+                message: 'Funding initiated',
+                checkout_url: squadResponse.data.checkout_url,
+                transaction_ref: transactionRef
+            });
+
+        } catch (error) {
+            console.error('Fund wallet error:', error);
+            res.status(500).json({ ok: false, error: error.message, failure: { code: 'ERR_SQUAD_INIT', ref: `ERR-${Date.now()}` } });
         }
     },
 

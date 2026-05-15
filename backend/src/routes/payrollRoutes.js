@@ -19,8 +19,11 @@ router.post('/update-worker-status', payrollController.updateWorkerStatus);
 // PayGuard AI & Squad Integration Routes
 router.post('/create-virtual-account', payrollController.createVirtualAccount);
 router.post('/initiate-funding', payrollController.initiateFunding);
+router.post('/wallet/fund', payrollController.initiateFunding); // Alias for frontend
 router.post('/simulate-funding', payrollController.simulateFunding);
 router.post('/disburse', payrollController.disburse);
+router.post('/squad/disburse', payrollController.disburse); // Alias for frontend
 router.get('/verify/:reference', payrollController.verifyTransfer);
+router.get('/payments/failed/:ref', (req, res) => res.status(404).json({ message: 'Failure details not available in this demo' })); // Placeholder for frontend
 
 module.exports = router;
