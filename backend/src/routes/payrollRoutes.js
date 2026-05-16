@@ -16,6 +16,7 @@ router.get('/payroll-batches', payrollController.getPayrollBatches);
 router.get('/batch-workers/:batchId', payrollController.getBatchWorkers);
 router.post('/update-worker-status', payrollController.updateWorkerStatus);
 router.delete('/delete-batch/:batchId', payrollController.deleteBatch);
+router.get('/appeals', workerController.getAppeals);
 
 // PayGuard AI & Squad Integration Routes
 router.post('/create-virtual-account', payrollController.createVirtualAccount);

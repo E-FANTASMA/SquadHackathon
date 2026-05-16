@@ -17,44 +17,32 @@ const workerController = {
 
             if (workerError) throw workerError;
 
-            // Use NIN from profile or request (profile is more authoritative)
             const finalNin = (worker.nin || requestedNin || '').toString().trim();
             const finalAccount = (account_number || '').toString().trim();
 
             console.log(`DEBUG: Claim attempt - NIN: [${finalNin}], Account: [${finalAccount}]`);
 
-            // 2. SQUAD INTEGRATION: Verify Bank Account
-            let accountVerified = false;
-            try {
-                const verification = await squadService.verifyBankAccount(finalAccount, bank_code);
-                if (verification && verification.data && verification.data.account_name) {
-                    const squadName = verification.data.account_name.toLowerCase();
-                    const workerName = worker.full_name.toLowerCase();
-                    
-                    if (squadName.includes(workerName.split(' ')[0]) || workerName.includes(squadName.split(' ')[0])) {
-                        accountVerified = true;
-                    } else {
-                        return res.status(400).json({ 
-                            error: `Bank account name (${verification.data.account_name}) does not match your registered name (${worker.full_name})` 
-                        });
-                    }
-                }
-            } catch (err) {
-                console.warn('Squad verification failed:', err.message);
-            }
+            // SCORING BASE
+            let trust_score = 0;
+            let status = 'pending';
+            let evidence = [];
 
-            // 3. Find matching payroll record
-            // Matching logic: NIN and Account Number (Account number might have leading zero issues from Excel)
-            const { data: payrollRecords, error: payrollError } = await supabaseAdmin
+            // 2. Find potential payroll records for duplicate check
+            const { data: allSameNin, error: dupError } = await supabaseAdmin
                 .from('payroll_workers')
                 .select('*')
-                .eq('nin', finalNin)
-                .eq('worker_claimed', false);
+                .eq('nin', finalNin);
 
-            if (payrollError) throw payrollError;
+            if (dupError) throw dupError;
 
-            // Find match with account number (handling potential leading zero stripping)
-            const payrollRecord = payrollRecords.find(r => {
+            const isDuplicate = allSameNin && allSameNin.length > 1;
+            if (isDuplicate) {
+                evidence.push(`Duplicate NIN detected: ${allSameNin.length} records found with this NIN in payroll.`);
+            }
+
+            // 3. Find specific matching payroll record (Unclaimed)
+            const payrollRecord = allSameNin.find(r => {
+                if (r.worker_claimed) return false;
                 const dbAcc = r.account_number.toString().trim();
                 return dbAcc === finalAccount || 
                        dbAcc === finalAccount.replace(/^0+/, '') ||
@@ -67,30 +55,150 @@ const workerController = {
                 });
             }
 
-            // 4. Update worker profile with bank details
-            const { error: updateWorkerError } = await supabaseAdmin
+            // SCORING LOGIC
+            // +25 Identity Match (NIN + Account)
+            trust_score += 25;
+            evidence.push('Identity Match: NIN and Account number match payroll record (+25)');
+
+            // +25 Uniqueness (No duplicates in batch)
+            if (!isDuplicate) {
+                trust_score += 25;
+                evidence.push('Uniqueness: This NIN is unique within the payroll batch (+25)');
+            } else {
+                evidence.push('Risk: Duplicate NIN detected. Record flagged regardless of score.');
+            }
+
+            // +20 Name Integrity
+            const pName = payrollRecord.full_name.toLowerCase();
+            const wName = worker.full_name.toLowerCase();
+            if (pName.includes(wName.split(' ')[0]) || wName.includes(pName.split(' ')[0])) {
+                trust_score += 20;
+                evidence.push('Name Integrity: Name matches payroll record (+20)');
+            } else {
+                evidence.push(`Name Discrepancy: Payroll name [${payrollRecord.full_name}] vs Profile name [${worker.full_name}]`);
+            }
+
+            // DETERMINE STATUS
+            if (isDuplicate) {
+                status = 'flagged';
+            } else if (trust_score >= 70) { // Will reach 100 with docs later
+                status = 'verified';
+            } else if (trust_score >= 40) {
+                status = 'flagged';
+            } else {
+                status = 'rejected';
+            }
+
+            // 4. Update worker profile
+            await supabaseAdmin
                 .from('workers')
-                .update({ account_number: finalAccount, bank_name, bank_code })
+                .update({ 
+                    account_number: finalAccount, 
+                    bank_name, 
+                    bank_code,
+                    trust_score,
+                    verification_status: status
+                })
                 .eq('id', worker.id);
 
-            if (updateWorkerError) throw updateWorkerError;
-
-            // 5. Mark payroll record as claimed
-            const { error: updatePayrollError } = await supabaseAdmin
+            // 5. Update payroll record
+            await supabaseAdmin
                 .from('payroll_workers')
-                .update({ worker_claimed: true })
+                .update({ 
+                    worker_claimed: true,
+                    verification_status: status
+                })
                 .eq('id', payrollRecord.id);
 
-            if (updatePayrollError) throw updatePayrollError;
-
             res.status(200).json({
-                message: 'Payroll record claimed successfully',
+                message: `Payroll record claimed. Status: ${status}, Score: ${trust_score}`,
                 payrollRecord,
-                squad_verified: accountVerified
+                trust_score,
+                status,
+                evidence
             });
 
         } catch (error) {
             console.error('Claim record error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    submitAppeal: async (req, res) => {
+        try {
+            const { reason, payroll_worker_id } = req.body;
+            const profile_id = req.user.id;
+
+            const { data: worker } = await supabaseAdmin
+                .from('workers')
+                .select('id')
+                .eq('profile_id', profile_id)
+                .single();
+
+            if (!worker) throw new Error('Worker profile not found');
+
+            const { data: appeal, error } = await supabaseAdmin
+                .from('appeals')
+                .insert([
+                    { worker_id: worker.id, payroll_worker_id, reason, status: 'pending' }
+                ])
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            // Update status to flagged for admin review
+            await supabaseAdmin
+                .from('workers')
+                .update({ verification_status: 'flagged' })
+                .eq('id', worker.id);
+
+            if (payroll_worker_id) {
+                await supabaseAdmin
+                    .from('payroll_workers')
+                    .update({ verification_status: 'flagged' })
+                    .eq('id', payroll_worker_id);
+            }
+
+            res.status(201).json({ message: 'Appeal submitted successfully', appeal });
+        } catch (error) {
+            console.error('Appeal error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    getAppeals: async (req, res) => {
+        try {
+            const profile_id = req.user.id;
+
+            // Find company admin's company
+            const { data: company } = await supabaseAdmin
+                .from('companies')
+                .select('id')
+                .eq('admin_id', profile_id)
+                .single();
+
+            if (!company) return res.status(403).json({ error: 'Unauthorized' });
+
+            // Fetch appeals for workers in this company's batches
+            const { data, error } = await supabaseAdmin
+                .from('appeals')
+                .select(`
+                    *,
+                    workers(full_name, nin, account_number),
+                    payroll_workers(full_name, payroll_batches(batch_name, company_id))
+                `);
+
+            if (error) throw error;
+
+            // Filter by company_id manually if RLS is tricky for this specific join
+            const companyAppeals = data.filter(a => 
+                a.payroll_workers?.payroll_batches?.company_id === company.id
+            );
+
+            res.status(200).json(companyAppeals);
+        } catch (error) {
+            console.error('Get appeals error:', error);
             res.status(500).json({ error: error.message });
         }
     },

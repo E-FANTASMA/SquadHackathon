@@ -5,7 +5,7 @@ This is the backend for the PayGuard AI platform, built with Node.js, Express, S
 ## Tech Stack
 - **Node.js & Express.js**: Backend framework.
 - **Supabase**: Authentication, PostgreSQL database (RLS enabled), and File Storage.
-- **Squad API**: Payment initiation, account lookup, and salary disbursement.
+- **Squad API**: Payouts, Checkout, Account Lookup, and Ledger Balance.
 - **xlsx**: Excel file parsing for payroll uploads.
 
 ## Environment Variables
@@ -28,40 +28,40 @@ FRONTEND_URL=http://localhost:8080
 
 ## API Endpoints
 
-### 1. Company / Payroll Administration (`/api/company`)
+### 1. Administration (`/api/company`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| POST | `/api/company/upload-payroll` | Upload master payroll Excel file. |
-| GET | `/api/company/payroll-batches` | Get list of all payroll batches. |
-| GET | `/api/company/batch-workers/:id` | Get individual worker records for a batch. |
-| POST | `/api/company/update-worker-status` | Manually Verify/Reject a flagged worker. |
-| DELETE | `/api/company/delete-batch/:id` | Remove batch and its worker records. |
-| POST | `/api/company/squad/disburse` | **AI-Gated:** Release Squad payout to a verified worker. |
-| POST | `/api/company/wallet/fund` | Initiate treasury wallet funding via Squad Checkout. |
+| POST | `/api/company/upload-payroll` | Upload Excel (Must have `first_name`, `last_name`). |
+| GET | `/api/company/payroll-batches` | Get list of all department payroll batches. |
+| GET | `/api/company/appeals` | Retrieve worker disputes for review. |
+| POST | `/api/company/update-worker-status` | Manually override worker trust status. |
+| DELETE | `/api/company/delete-batch/:id` | Cleanup batch and associated worker records. |
+| POST | `/api/company/squad/disburse` | **AI-Gated:** Release salary to a verified worker. |
+| POST | `/api/company/wallet/fund` | Treasury funding via Squad Checkout. |
 
 ### 2. Authentication (`/api/auth`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| POST | `/api/auth/company/signup` | Signup for Government Ministry/Department. |
-| POST | `/api/auth/worker/signup` | **NIN-Enforced:** Signup for workers (must match payroll). |
-| POST | `/api/auth/company/login` | Universal login (returns JWT and profile data). |
+| POST | `/api/auth/company/signup` | Signup for Department (Split name validation). |
+| POST | `/api/auth/worker/signup` | **NIN-Enforced:** Must match uploaded payroll. |
+| POST | `/api/auth/company/login` | Returns JWT and comprehensive profile data. |
 
 ### 3. Worker Portal (`/api/worker`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| POST | `/api/worker/claim-record` | Match bank account to an uploaded payroll entry. |
-| POST | `/api/worker/submit-documents` | Upload Statement (PDF) and App Screenshot (Img). |
-| GET | `/api/worker/status` | Check AI trust score and verification status. |
+| POST | `/api/worker/claim-record` | **Scoring Engine:** NIN & Account fuzzy matching. |
+| POST | `/api/worker/submit-documents` | Upload Statement (PDF) and Screenshot (Img). |
+| POST | `/api/worker/submit-appeal` | File a dispute for flagged/rejected records. |
 
-### 4. Squad Infrastructure (`/api/payment`)
+### 4. Infrastructure (`/api/payment`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | GET | `/api/payment/balance` | Fetch live Squad merchant ledger balance. |
-| POST | `/api/payment/webhook` | Public endpoint for Squad event notifications. |
+| POST | `/api/payment/webhook` | Squad event callback listener. |
 
 ## Core Logic: "Verify Before Pay"
-The system ensures treasury safety by requiring workers to be in `verified` status before any Squad transfer can be released. Discrepancies between payroll data and worker-submitted documents (Statement vs App Screenshot) trigger a `flagged` status, locking the disbursement until a manual audit is performed.
+The system ensures treasury safety by requiring workers to achieve a high **Trust Score** before any Squad transfer can be released. The engine automatically flags duplicate NINs as high-risk, forcing them into the manual review queue.
 
 ## Testing
-- UseGTBank (`058`) as the bank code for stable testing in the Squad sandbox.
-- Ensure NIN used during worker signup exists in the uploaded Excel master list.
+- Use **GTBank (`058`)** for stable testing in the Squad sandbox.
+- Ensure the Excel file contains separate `first_name` and `last_name` columns.

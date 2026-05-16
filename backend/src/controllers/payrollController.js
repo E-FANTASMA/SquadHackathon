@@ -402,11 +402,11 @@ const payrollController = {
                 return res.status(400).json({ error: 'Excel file is empty' });
             }
 
-            const requiredColumns = ['full_name', 'nin', 'account_number', 'salary_amount'];
+            const requiredColumns = ['first_name', 'last_name', 'nin', 'account_number', 'salary_amount'];
             const firstRow = data[0];
             for (const col of requiredColumns) {
                 if (!(col in firstRow)) {
-                    return res.status(400).json({ error: `Missing required column: ${col}. Please use the template.` });
+                    return res.status(400).json({ error: `Missing required column: ${col}. Please use the template with separate first_name and last_name columns.` });
                 }
             }
 
@@ -435,7 +435,7 @@ const payrollController = {
 
             const payrollWorkers = data.map(row => ({
                 payroll_batch_id: batchData.id,
-                full_name: row.full_name,
+                full_name: `${row.first_name.toString().trim()} ${row.last_name.toString().trim()}`,
                 nin: row.nin.toString(),
                 account_number: row.account_number.toString(),
                 salary_amount: parseFloat(row.salary_amount),

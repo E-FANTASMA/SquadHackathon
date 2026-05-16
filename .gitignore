@@ -83,5 +83,6 @@ out/
 *.sqlite
 *.sqlite3
 
+.txt
 .md
 !README.md

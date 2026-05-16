@@ -4,35 +4,41 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/store/authStore";
-import { useAppealStore } from "@/store/appealStore";
 import { useFeedStore } from "@/store/feedStore";
+import { workerService } from "@/services/api";
 import { Paperclip, Send } from "lucide-react";
 import { toast } from "sonner";
 
 
 function AppealPage() {
   const user = useAuthStore((s) => s.user);
-  const submit = useAppealStore((s) => s.submit);
   const pushFeed = useFeedStore((s) => s.push);
   const navigate = useNavigate();
 
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const [doc, setDoc] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     if (message.trim().length < 20) return toast.error("Please describe the issue (min 20 characters)");
-    if (!doc) return toast.error("Attach a supporting document (e.g. National ID)");
-    submit({
-      workerId: user?.id ?? "anon",
-      workerName: user?.fullName ?? user?.email ?? "Worker",
-      employeeId: user?.matchedEmployeeId,
-      message: message.trim(),
-      supportingDocName: doc.name,
-    });
-    pushFeed({ kind: "info", message: `Appeal filed by ${user?.fullName ?? "worker"}` });
-    toast.success("Appeal submitted to your administrator");
-    navigate("/worker/home");
+    // if (!doc) return toast.error("Attach a supporting document (e.g. National ID)");
+    
+    setBusy(true);
+    try {
+      await workerService.submitAppeal({
+        reason: message.trim(),
+        payroll_worker_id: user?.matchedEmployeeId
+      });
+      
+      pushFeed({ kind: "info", message: `Appeal filed by ${user?.fullName || "worker"}` });
+      toast.success("Appeal submitted to your administrator");
+      navigate("/worker/home");
+    } catch (error: any) {
+      toast.error(error.message || "Submission failed");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

@@ -4,13 +4,17 @@ const authController = {
     // Company Signup
     companySignup: async (req, res) => {
         try {
-            const { companyName, company_name, email, password, phone_number, phone } = req.body;
+            const { companyName, company_name, email, password, phone_number, phone, firstName, lastName, first_name, last_name } = req.body;
             const final_company_name = companyName || company_name;
             const final_phone = phone_number || phone;
+            const fName = firstName || first_name;
+            const lName = lastName || last_name;
 
-            if (!final_company_name || !email || !password) {
-                return res.status(400).json({ error: 'Missing required fields (Company name, Email, and Password)' });
+            if (!final_company_name || !email || !password || !fName || !lName) {
+                return res.status(400).json({ error: 'Missing required fields (Company name, Email, Password, and Owner First/Last name)' });
             }
+
+            const owner_full_name = `${fName.trim()} ${lName.trim()}`;
 
             // 1. Sign up user in Supabase Auth (Trigger handles profile creation)
             const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -18,7 +22,7 @@ const authController = {
                 password,
                 options: {
                     data: {
-                        full_name: final_company_name,
+                        full_name: owner_full_name,
                         role: 'company_admin'
                     }
                 }
@@ -54,12 +58,15 @@ const authController = {
     // Worker Signup
     workerSignup: async (req, res) => {
         try {
-            const { fullName, full_name, nin, email, password } = req.body;
-            const final_full_name = fullName || full_name;
+            const { firstName, lastName, first_name, last_name, nin, email, password } = req.body;
+            const fName = firstName || first_name;
+            const lName = lastName || last_name;
 
-            if (!final_full_name || !nin || !email || !password) {
-                return res.status(400).json({ error: 'Missing required fields (Full name, NIN, Email, and Password)' });
+            if (!fName || !lName || !nin || !email || !password) {
+                return res.status(400).json({ error: 'Missing required fields (First name, Last name, NIN, Email, and Password)' });
             }
+
+            const final_full_name = `${fName.trim()} ${lName.trim()}`;
 
             // ENFORCEMENT: Check if NIN exists in any payroll record
             const { data: payrollRecords, error: matchError } = await supabaseAdmin

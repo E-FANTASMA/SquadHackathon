@@ -1,41 +1,39 @@
 # PayGuard AI: Anti-Ghost-Worker Fraud Prevention
 
 ## The Problem
-Ghost worker fraud costs governments and large organizations billions of Naira annually. Fraudsters insert non-existent or ineligible employees into payrolls, siphoning salaries through unverified accounts. Traditional systems lack the real-time identity and financial history verification needed to block these "ghosts" before disbursement happens.
+Ghost worker fraud costs governments billions of Naira annually. Fraudsters insert fictitious employees into payrolls, siphoning salaries through unverified accounts. Traditional systems lack the real-time identity, financial history, and name-integrity verification needed to block these "ghosts" before money leaves the treasury.
 
 ## The PayGuard AI Solution
-**PayGuard AI** is a specialized payroll gatekeeper that bridges the gap between a department's payroll list and the worker's legitimate identity. It enforces a strict **"Verify Before Pay"** protocol using AI and the **Squad API**.
+**PayGuard AI** is a specialized payroll gatekeeper that enforces a strict **"Verify Before Pay"** protocol using a 100-point trust engine and the **Squad API**.
 
-### 1. Authority-Led Data Input
-A Government Department (Company Admin) uploads the authoritative monthly payroll Excel file. 
-- **Master List:** This file contains the names, NINs, and salary amounts for every legitimate employee.
-- **Initial Status:** All workers enter the **Smart Decision Ledger** with a `pending` status. No payments can be made at this stage.
+### 1. High-Integrity Data Input
+Department Admins upload monthly payroll files with separate **First Name** and **Last Name** columns. This enables the AI to perform precise name-matching checks and prevents "single-name" registration bypasses.
 
-### 2. Identity-First Worker Onboarding
-Workers cannot simply join the platform. 
-- **NIN Matching:** Registration is only permitted if the worker's National Identity Number (NIN) exists in an uploaded payroll batch.
-- **Name Verification:** The system performs a loose name-match check between the registration data and the payroll record to prevent NIN hijacking.
+### 2. Trust-Based Onboarding
+- **NIN Matching:** Workers cannot register unless their NIN exists in an authorized payroll batch.
+- **Uniqueness Check:** The system automatically flags duplicate NINs, neutralizing ghost-worker rings attempting to collect multiple salaries.
 
-### 3. Multi-Factor AI Verification
-To move from `pending` to `verified`, a worker must prove their legitimacy:
-- **Bank Statement Upload:** Workers upload a PDF of their bank statement.
-- **Transaction History Screenshot:** Workers upload a screenshot from their mobile banking app showing at least 10 recent transactions.
-- **AI Comparison:** PayGuard AI (simulated) compares the bank statement against the app screenshot and searches for previous salary credits. Discrepancies result in a `flagged` status, requiring manual review by the Department Admin.
+### 3. Multi-Factor Trust Scoring
+Worker legitimacy is measured through a dynamic trust score:
+- **Identity (+25):** NIN and Account match official records.
+- **Uniqueness (+25):** No duplicate NINs detected in the batch.
+- **Integrity (+20):** Registered name matches the split-name payroll entry.
+- **Documentation (+30):** Comparison of Bank Statement vs. App Screenshot.
 
-### 4. Smart Decision Ledger & Admin Control
-The Department Admin manages a real-time dashboard:
-- **Alerts Feed:** A live feed of AI risk findings and Squad payment notifications.
-- **Manual Review:** Admins can inspect uploaded documents for flagged workers and manually Verify, Reject, or keep them Flagged.
-- **Execution Gate:** Only records marked as `verified` (by AI or Admin override) are eligible for the Squad disbursement gate.
+### 4. Smart Decision Ledger & Appeals
+Admins manage a real-time dashboard featuring:
+- **AI Alerts Feed:** Real-time monitoring of risk findings and payment events.
+- **Appeals Inbox:** A dedicated workspace where admins review worker explanations for discrepancies and manually verify legitimate cases.
+- **Disbursement Gate:** A hard block on Squad transfers for any worker with a score below 80 or a "Flagged" status.
 
-### 5. Secure Funding & Disbursement (Squad API)
-- **Treasury Funding:** Departments fund their payroll batches using the secure Squad Checkout gateway.
-- **Ledger Balance:** The dashboard displays the live Squad Ledger Balance, ensuring treasury has sufficient funds.
-- **Atomic Disbursement:** Verified salaries are paid out directly to workers' verified bank accounts using Squad's payout infrastructure.
+### 5. Squad Treasury Integration
+- **Ledger Balance:** Real-time visibility of treasury funds.
+- **Secure Funding:** Batch funding through Squad's encrypted checkout gateway.
+- **Verified Disbursement:** Final salary payouts are released only after AI trust scores meet the verification threshold.
 
 ---
 
 ## Technical Pillars
-- **Supabase:** Secure PostgreSQL database with RLS ensuring data from one government department is never visible to another.
-- **Squad API:** Handles NIN validation, bank account lookup, secure batch funding, and salary disbursement.
-- **Smart Logic:** Custom logic gates that prevent disbursement if a worker is flagged or rejected, effectively neutralizing ghost workers in real-time.
+- **Supabase:** Secure PostgreSQL database with RLS ensuring total data isolation between government departments.
+- **Squad API:** Powering identity lookup, treasury management, and secure NIP transfers.
+- **Risk Engine:** Custom backend logic that evaluates fraud signals and manages the worker-to-payroll matching lifecycle.

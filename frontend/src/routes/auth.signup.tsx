@@ -15,12 +15,12 @@ function SignupPage() {
   const signup = useAuthStore((s) => s.signup);
   const navigate = useNavigate();
 
-  const [worker, setWorker] = useState({ fullName: "", nin: "", email: "", phone: "", password: "" });
-  const [company, setCompany] = useState({ companyName: "", email: "", phone: "", password: "" });
+  const [worker, setWorker] = useState({ firstName: "", lastName: "", nin: "", email: "", phone: "", password: "" });
+  const [company, setCompany] = useState({ companyName: "", firstName: "", lastName: "", email: "", phone: "", password: "" });
 
   const submitWorker = async () => {
-    if (!worker.fullName || !worker.email || !worker.password || !worker.nin) {
-      return toast.error("Name, email, NIN and password required");
+    if (!worker.firstName || !worker.lastName || !worker.email || !worker.password || !worker.nin) {
+      return toast.error("First name, Last name, NIN, and email/password are required");
     }
     if (worker.nin.length !== 11) return toast.error("NIN must be 11 digits");
     try {
@@ -31,11 +31,14 @@ function SignupPage() {
       toast.error(error.message || "Signup failed");
     }
   };
+  
   const submitCompany = async () => {
-    if (!company.companyName || !company.email || !company.password) return toast.error("Name, email and password required");
+    if (!company.companyName || !company.firstName || !company.lastName || !company.email || !company.password) {
+      return toast.error("All fields including Agency and Admin name are required");
+    }
     try {
       await signup({ ...company, role: "company_admin" });
-      toast.success("Company account created");
+      toast.success("Ministry account created");
       navigate("/admin/dashboard");
     } catch (error: any) {
       toast.error(error.message || "Signup failed");
@@ -55,7 +58,10 @@ function SignupPage() {
           </TabsList>
 
           <TabsContent value="worker" className="mt-4 space-y-3">
-            <Field label="Full name" value={worker.fullName} onChange={(v) => setWorker({ ...worker, fullName: v })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="First Name" value={worker.firstName} onChange={(v) => setWorker({ ...worker, firstName: v })} />
+              <Field label="Last Name" value={worker.lastName} onChange={(v) => setWorker({ ...worker, lastName: v })} />
+            </div>
             <Field label="NIN (11 digits)" value={worker.nin} onChange={(v) => setWorker({ ...worker, nin: v.replace(/\D/g, "").slice(0, 11) })} inputMode="numeric" />
             <Field label="Email" type="email" value={worker.email} onChange={(v) => setWorker({ ...worker, email: v })} />
             <Field label="Phone number" value={worker.phone} onChange={(v) => setWorker({ ...worker, phone: v })} />
@@ -64,11 +70,15 @@ function SignupPage() {
           </TabsContent>
 
           <TabsContent value="company" className="mt-4 space-y-3">
-            <Field label="Company name" value={company.companyName} onChange={(v) => setCompany({ ...company, companyName: v })} />
+            <Field label="Ministry / Agency Name" value={company.companyName} onChange={(v) => setCompany({ ...company, companyName: v })} />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Admin First Name" value={company.firstName} onChange={(v) => setCompany({ ...company, firstName: v })} />
+              <Field label="Admin Last Name" value={company.lastName} onChange={(v) => setCompany({ ...company, lastName: v })} />
+            </div>
             <Field label="Email" type="email" value={company.email} onChange={(v) => setCompany({ ...company, email: v })} />
             <Field label="Phone number" value={company.phone} onChange={(v) => setCompany({ ...company, phone: v })} />
             <Field label="Password" type="password" value={company.password} onChange={(v) => setCompany({ ...company, password: v })} />
-            <Button className="w-full" onClick={submitCompany}>Create Company account</Button>
+            <Button className="w-full" onClick={submitCompany}>Create Agency account</Button>
           </TabsContent>
         </Tabs>
 
@@ -83,7 +93,7 @@ function SignupPage() {
 function Field({ label, value, onChange, type = "text", inputMode }: { label: string; value: string; onChange: (v: string) => void; type?: string; inputMode?: "text" | "numeric" }) {
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</Label>
       <Input type={type} inputMode={inputMode} value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );

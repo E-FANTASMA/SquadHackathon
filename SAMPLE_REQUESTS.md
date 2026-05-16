@@ -1,10 +1,10 @@
-# PayGuard AI - Squad Integration API Samples
+# PayGuard AI - Squad & Verification API Samples
 
-This document provides sample requests for the Squad-integrated payroll and worker endpoints.
+This document provides sample requests for the Squad-integrated payroll, worker verification, and appeals endpoints.
 
 ## 1. Merchant Balance Retrieval
 **Endpoint:** `GET /api/payment/balance`  
-**Description:** Fetches the live NGN ledger balance for the merchant from Squad.
+**Description:** Fetches the live NGN ledger balance for the department from Squad.
 
 **Response:**
 ```json
@@ -17,54 +17,65 @@ This document provides sample requests for the Squad-integrated payroll and work
   }
 }
 ```
-*(Note: Balance is returned in Kobo)*
 
 ---
 
-## 2. Wallet Funding (Direct)
-**Endpoint:** `POST /api/company/wallet/fund`  
-**Description:** Initiates a wallet funding transaction via Squad Checkout.
+## 2. Worker Registration (Split Name)
+**Endpoint:** `POST /api/auth/worker/signup`  
+**Description:** Registers a worker with mandatory first and last name validation.
 
 **Request Body:**
 ```json
 {
-  "amount": 500000,
-  "email": "finance@ministry.gov.ng"
-}
-```
-
-**Response:**
-```json
-{
-  "ok": true,
-  "checkout_url": "https://sandbox-pay.squadco.com/FUND-...",
-  "transaction_ref": "REF_RANDOM_MERCHANTID"
+  "firstName": "Chinedu",
+  "lastName": "Okafor",
+  "email": "worker@email.com",
+  "password": "...",
+  "nin": "12345678901"
 }
 ```
 
 ---
 
-## 3. Worker Verification (Document Upload)
-**Endpoint:** `POST /api/worker/submit-documents`  
-**Description:** Allows a worker to upload their bank statement and transaction screenshot for AI comparison.
+## 3. Worker Claim (Fuzzy Matching)
+**Endpoint:** `POST /api/worker/claim-record`  
+**Description:** Matches bank details to a payroll entry with leading-zero resiliency.
 
-**Request:** `multipart/form-data`
-- `statement`: (PDF File)
-- `screenshot`: (Image File)
-
-**Response:**
+**Request Body:**
 ```json
 {
-  "message": "Documents uploaded successfully. AI is comparing transactions. Status: Flagged for Admin Review.",
-  "verification_status": "flagged"
+  "nin": "12345678901",
+  "account_number": "0123456789",
+  "bank_code": "058",
+  "bank_name": "GTBank"
 }
 ```
 
 ---
 
-## 4. Manual Status Override (Admin)
+## 4. Appeal Submission
+**Endpoint:** `POST /api/worker/submit-appeal`  
+**Description:** Allows a flagged worker to submit an explanation to the admin.
+
+**Request Body:**
+```json
+{
+  "reason": "My NIN name was recently updated after marriage...",
+  "payroll_worker_id": "BATCH_WORKER_UUID"
+}
+```
+
+---
+
+## 5. Appeals Retrieval (Admin)
+**Endpoint:** `GET /api/company/appeals`  
+**Description:** Fetches all pending and resolved appeals for the department.
+
+---
+
+## 6. Manual Status Override (Admin)
 **Endpoint:** `POST /api/company/update-worker-status`  
-**Description:** Allows an admin to manually set a worker's status after document review.
+**Description:** Manually Verify or Reject a worker after reviewing their documents/appeal.
 
 **Request Body:**
 ```json
@@ -76,25 +87,12 @@ This document provides sample requests for the Squad-integrated payroll and work
 
 ---
 
-## 5. Disburse Salary (AI-Approved Only)
+## 7. Disburse Salary (AI-Gated)
 **Endpoint:** `POST /api/company/squad/disburse`  
-**Description:** Triggers a salary payment ONLY if verification_status is 'verified'.
-
-**Request Body:**
-```json
-{
-  "employeeId": "BATCH_WORKER_UUID"
-}
-```
-
----
-
-## 6. Delete Payroll Batch
-**Endpoint:** `DELETE /api/company/delete-batch/:batchId`  
-**Description:** Deletes a payroll batch and all associated worker records.
+**Description:** Triggers a Squad payout ONLY if trust score >= 80 and status is 'verified'.
 
 ---
 
 ## Headers (Required for all)
 `Authorization: Bearer <JWT_TOKEN>`  
-`Content-Type: application/json` (except for file uploads)
+`Content-Type: application/json`

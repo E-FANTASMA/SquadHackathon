@@ -113,6 +113,11 @@ export const workerService = {
     if (USE_REAL_API) return http(`/worker/submit-documents`, { method: "POST", body: JSON.stringify({ employeeId, checks }) });
     return useLedgerStore.getState().submitDocs(employeeId, checks);
   },
+
+  /** POST /worker/submit-appeal */
+  async submitAppeal(data: { reason: string; payroll_worker_id?: string }) {
+    return http("/worker/submit-appeal", { method: "POST", body: JSON.stringify(data) });
+  },
 };
 
 // ---------- Company portal ----------
@@ -160,6 +165,11 @@ export const companyService = {
   /** POST /company/update-worker-status */
   async updateWorkerStatus(data: { workerRecordId: string; status: string }): Promise<any> {
     return http("/company/update-worker-status", { method: "POST", body: JSON.stringify(data) });
+  },
+
+  /** GET /company/appeals */
+  async listAppeals(): Promise<any[]> {
+    return http("/company/appeals");
   },
 
   /** POST /company/squad/disburse — only callable when verification_status === 'verified'. */
