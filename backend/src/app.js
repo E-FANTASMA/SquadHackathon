@@ -18,14 +18,23 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/company', payrollRoutes);
-app.use('/api/worker', workerRoutes);
-app.use('/api/payment', paymentRoutes);
+const mountRoutes = (base) => {
+    app.use(`${base}/auth`, authRoutes);
+    app.use(`${base}/company`, payrollRoutes);
+    app.use(`${base}/worker`, workerRoutes);
+    app.use(`${base}/payment`, paymentRoutes);
+};
+
+// Mount at both /api and root for flexibility
+mountRoutes('/api');
+mountRoutes('');
 
 // Routes placeholder
 app.get('/', (req, res) => {
-    res.json({ message: 'Welcome to the Payroll Verification System API' });
+    res.json({ 
+        message: 'Welcome to the PayGuard AI API',
+        endpoints: ['/api/auth', '/api/company', '/api/worker', '/api/payment']
+    });
 });
 
 // Health check
