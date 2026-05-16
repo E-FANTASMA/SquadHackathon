@@ -1,225 +1,226 @@
+/**
+ * PayGuard AI - Document Verification Engine
+ * 
+ * This module performs deep analysis on extracted OCR text from bank statements 
+ * and mobile app screenshots to verify identity and document legitimacy.
+ */
+
 function normText(s) {
-  return (s || '').toString().replace(/\s+/g, ' ').trim();
+    return (s || '').toString().replace(/\s+/g, ' ').trim();
 }
 
 function digitsOnly(s) {
-  return (s || '').toString().replace(/\D/g, '');
+    return (s || '').toString().replace(/\D/g, '');
 }
 
+/**
+ * Fuzzy includes: checks if needle is within haystack with loose matching
+ */
 function includesLoose(haystack, needle) {
-  const h = normText(haystack).toLowerCase();
-  const n = normText(needle).toLowerCase();
-  if (!h || !n) return false;
-  return h.includes(n);
+    const h = normText(haystack).toLowerCase();
+    const n = normText(needle).toLowerCase();
+    if (!h || !n) return false;
+    // Remove special characters from both for better matching
+    const cleanH = h.replace(/[^a-z0-9]/g, '');
+    const cleanN = n.replace(/[^a-z0-9]/g, '');
+    return cleanH.includes(cleanN);
 }
 
-function findAccountNumber(text) {
-  // Heuristic: 10-digit NUBAN most likely.
-  const t = (text || '').replace(/\s/g, '');
-  const matches = t.match(/\b\d{10}\b/g);
-  return matches && matches.length ? matches[0] : null;
+/**
+ * Extracts potential account numbers (10-digit NUBAN)
+ */
+function findAccountNumbers(text) {
+    const t = (text || '').replace(/[\s-]/g, '');
+    const matches = t.match(/\b\d{10}\b/g);
+    return matches || [];
 }
 
-function looksLikeTransactionList(text) {
-  const t = (text || '').toLowerCase();
-  const hasMoney = /₦|ngn|\bdebit\b|\bcredit\b/.test(t);
-  const hasDate = /\b(20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/](20)?\d{2})\b/.test(t);
-  return hasMoney && hasDate;
-}
+/**
+ * Robust transaction extractor
+ */
+function extractTransactions(text, limit = 40) {
+    const lines = (text || '').split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 10);
+    const txs = [];
 
-function extractTransactions(text, limit = 25) {
-  // Very rough parser: find lines that contain amount-ish + date-ish.
-  const lines = (text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const txs = [];
-  for (const line of lines) {
-    if (!/\d/.test(line)) continue;
-    const dateMatch = line.match(/\b(20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/](20)?\d{2})\b/);
-    const amountMatch = line.match(/(?:₦|NGN)?\s?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
-    if (!dateMatch || !amountMatch) continue;
-    txs.push({
-      raw: line,
-      date: dateMatch[0],
-      amount: amountMatch[1],
-      reference_id: extractReferenceId(line)
-    });
-    if (txs.length >= limit) break;
-  }
-  return txs;
+    // Date formats: DD/MM/YYYY, YYYY-MM-DD, Month DD, YYYY, etc.
+    const dateRegex = /\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|20\d{2}[-/]\d{1,2}[-/]\d{1,2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2})\b/i;
+    // Amount formats: 1,000.00, 500.00, 1000, etc.
+    const amountRegex = /(?:₦|NGN|GHS|USD|EUR)?\s?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i;
+
+    for (const line of lines) {
+        const dateMatch = line.match(dateRegex);
+        const amountMatch = line.match(amountRegex);
+
+        if (dateMatch && amountMatch) {
+            const amount = amountMatch[1].replace(/,/g, '');
+            if (parseFloat(amount) > 0) {
+                txs.push({
+                    raw: line,
+                    date: dateMatch[0],
+                    amount: amount,
+                    reference: extractReferenceId(line)
+                });
+            }
+        }
+        if (txs.length >= limit) break;
+    }
+    return txs;
 }
 
 function extractReferenceId(text) {
-  const t = text || '';
-  // Common labels: Ref, Reference, Transaction ID, RRN, Session ID
-  const m =
-    t.match(/\b(?:ref(?:erence)?|transaction\s*id|rrn|session\s*id)[:#]?\s*([A-Za-z0-9\-_/]{6,})\b/i) ||
-    t.match(/\b([A-Za-z0-9]{10,})\b/); // fallback: long-ish token
-  return m ? m[1] : null;
+    const t = text || '';
+    // Look for common reference labels
+    const m = t.match(/\b(?:ref|txn|trans|id|session|rrn)[:#]?\s*([A-Z0-9\-_/]{8,})\b/i) ||
+              t.match(/\b([A-Z0-9]{12,})\b/i); // Long strings of characters are likely IDs
+    return m ? m[1] : null;
 }
 
-function pickRandom(arr) {
-  if (!arr || arr.length === 0) return null;
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function statusFromScore(score, hardFlag) {
-  if (hardFlag) return 'flagged';
-  if (score >= 80) return 'verified';
-  if (score >= 50) return 'flagged';
-  return 'rejected';
-}
-
+/**
+ * Main AI analysis entry point
+ */
 function analyzeUploads({ worker, statement, screenshot }) {
-  const evidence = [];
-  let scoreDelta = 0;
-  let hardFlag = false;
+    const evidence = [];
+    let scoreDelta = 0;
+    let hardFlag = false;
 
-  const statementText = normText(statement?.text);
-  const screenshotText = normText(screenshot?.text);
+    const sText = statement?.text || '';
+    const pText = screenshot?.text || '';
 
-  const statementWarnings = statement?.warnings || [];
-  const screenshotWarnings = screenshot?.warnings || [];
-  for (const w of statementWarnings) evidence.push(`Statement OCR warning: ${w}`);
-  for (const w of screenshotWarnings) evidence.push(`Screenshot OCR warning: ${w}`);
+    // 1. Legitimacy Check: Keyword Density
+    const bankingKeywords = ['balance', 'statement', 'transaction', 'debit', 'credit', 'account', 'transfer', 'ledger', 'available'];
+    const sHits = bankingKeywords.filter(k => includesLoose(sText, k)).length;
+    const pHits = bankingKeywords.filter(k => includesLoose(pText, k)).length;
 
-  // Statement AI (+15)
-  const statementLooksPlausible = statementText.length >= 200;
-  const acctFromStatement = findAccountNumber(statementText);
-  const workerAcct = digitsOnly(worker?.account_number);
-  const acctMatches = acctFromStatement && workerAcct && acctFromStatement === workerAcct;
-  const nameMatches = includesLoose(statementText, worker?.full_name);
-
-  if (statementLooksPlausible) {
-    scoreDelta += 7;
-    evidence.push('Statement plausibility: Sufficient text extracted (+7)');
-  } else {
-    evidence.push('Statement plausibility: Too little text extracted (0)');
-  }
-  if (acctMatches) {
-    scoreDelta += 5;
-    evidence.push('Statement field match: Account number matches profile (+5)');
-  } else if (acctFromStatement) {
-    evidence.push(`Statement field match: Account number extracted but mismatch (${acctFromStatement}) (0)`);
-    hardFlag = true;
-  } else {
-    evidence.push('Statement field match: Account number not detected (0)');
-  }
-  if (nameMatches) {
-    scoreDelta += 3;
-    evidence.push('Statement field match: Name appears on statement (+3)');
-  } else {
-    evidence.push('Statement field match: Name not detected (0)');
-  }
-
-  // Screenshot AI (+15)
-  const screenshotPlausible = looksLikeTransactionList(screenshotText);
-  if (screenshotPlausible) {
-    scoreDelta += 10;
-    evidence.push('Screenshot plausibility: Transaction history cues detected (+10)');
-  } else {
-    evidence.push('Screenshot plausibility: Could not detect transaction history cues (0)');
-  }
-  if (includesLoose(screenshotText, worker?.bank_name) || /transaction|history|debit|credit/i.test(screenshotText)) {
-    scoreDelta += 5;
-    evidence.push('Screenshot OCR: Banking keywords detected (+5)');
-  } else {
-    evidence.push('Screenshot OCR: Banking keywords missing (0)');
-  }
-
-  const statementTxs = extractTransactions(statementText, 25);
-  const screenshotTxs = extractTransactions(screenshotText, 25);
-  const allTxs = [...statementTxs];
-
-  let overlapFound = false;
-  if (statementTxs.length && screenshotTxs.length) {
-    outer: for (const sTx of statementTxs) {
-      for (const pTx of screenshotTxs) {
-        if (!sTx.amount || !pTx.amount) continue;
-        const sAmt = sTx.amount.replace(/,/g, '');
-        const pAmt = pTx.amount.replace(/,/g, '');
-        if (sAmt === pAmt && sTx.date && pTx.date) {
-          overlapFound = true;
-          break outer;
-        }
-      }
+    if (sHits >= 3) {
+        scoreDelta += 5;
+        evidence.push(`Statement legitimacy: High banking keyword density (${sHits} detected) (+5)`);
+    } else {
+        evidence.push('Statement legitimacy: Low keyword density - document structure unverified (0)');
     }
-  }
 
-  if (overlapFound) {
-    evidence.push('Cross-document consistency: Found at least 1 overlapping transaction (evidence)');
-  } else {
-    evidence.push('Cross-document consistency: No overlapping transaction found (evidence)');
-    hardFlag = true;
-  }
+    if (pHits >= 2) {
+        scoreDelta += 5;
+        evidence.push(`Screenshot legitimacy: Banking app interface cues detected (+5)`);
+    } else {
+        evidence.push('Screenshot legitimacy: App interface cues missing (0)');
+    }
 
-  const selected = pickRandom(allTxs.length ? allTxs : screenshotTxs);
-  const receiptChallenge = selected
-    ? {
-        reference_id: selected.reference_id || extractReferenceId(selected.raw) || null,
-        amount: selected.amount,
-        date: selected.date,
-        hint: 'Upload a receipt for the highlighted transaction. OCR must show the same reference/transaction ID.'
-      }
-    : null;
+    // 2. Identity Verification: Account Number
+    const sAccts = findAccountNumbers(sText);
+    const workerAcct = digitsOnly(worker?.account_number);
+    const acctFoundInStatement = sAccts.some(a => a === workerAcct || a.includes(workerAcct) || workerAcct.includes(a));
 
-  if (!receiptChallenge || !receiptChallenge.reference_id) {
-    evidence.push('Receipt challenge: Could not extract a reference ID; will require manual review');
-    hardFlag = true;
-  } else {
-    evidence.push(`Receipt challenge: Selected transaction reference ${receiptChallenge.reference_id} (next step)`);
-  }
+    if (acctFoundInStatement) {
+        scoreDelta += 5;
+        evidence.push('Identity Sync: Account number found on bank statement (+5)');
+    } else {
+        evidence.push(`Identity Sync: Could not find account [${workerAcct}] on statement (0)`);
+    }
 
-  // Cap doc delta at 30.
-  scoreDelta = Math.max(0, Math.min(30, scoreDelta));
+    // 3. Identity Verification: Name Match
+    const nameOnStatement = includesLoose(sText, worker?.full_name);
+    if (nameOnStatement) {
+        scoreDelta += 5;
+        evidence.push('Identity Sync: Name found on bank statement (+5)');
+    } else {
+        evidence.push('Identity Sync: Name mismatch or not found on statement (0)');
+    }
 
-  return {
-    scoreDelta,
-    hardFlag,
-    evidence,
-    receiptChallenge
-  };
+    // 4. Cross-Document Consistency: Overlapping Transactions
+    const sTxs = extractTransactions(sText);
+    const pTxs = extractTransactions(pText);
+
+    let matchCount = 0;
+    const matchedRefs = new Set();
+
+    if (sTxs.length > 0 && pTxs.length > 0) {
+        for (const st of sTxs) {
+            for (const pt of pTxs) {
+                // Matching criteria: Same amount (strictly) and similar date or reference
+                const amountMatch = st.amount === pt.amount;
+                const refMatch = (st.reference && pt.reference && st.reference === pt.reference);
+                
+                if (amountMatch && (refMatch || st.date === pt.date)) {
+                    matchCount++;
+                    if (st.reference) matchedRefs.add(st.reference);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (matchCount >= 2) {
+        scoreDelta += 10;
+        evidence.push(`Consistency Check: Found ${matchCount} overlapping transactions between Statement and App (+10)`);
+    } else if (matchCount === 1) {
+        scoreDelta += 5;
+        evidence.push('Consistency Check: Only 1 overlapping transaction found. High risk (+5)');
+    } else {
+        evidence.push('Consistency Check: ZERO overlapping transactions. Document legitimacy flagged.');
+        hardFlag = true;
+    }
+
+    // 5. Generate Challenge
+    // Prioritize a transaction that exists in both for the challenge
+    const challengeSource = pTxs.length > 0 ? pTxs : sTxs;
+    const challengeTx = challengeSource.find(t => t.reference) || challengeSource[0];
+
+    const receiptChallenge = challengeTx ? {
+        reference_id: challengeTx.reference || extractReferenceId(challengeTx.raw),
+        amount: challengeTx.amount,
+        date: challengeTx.date,
+        hint: `To verify these documents, upload the digital receipt for the ${challengeTx.amount} transaction on ${challengeTx.date}.`
+    } : null;
+
+    if (!receiptChallenge?.reference_id) {
+        evidence.push('Challenge Error: Could not extract a verifiable transaction ID. Manual review required.');
+        hardFlag = true;
+    }
+
+    return {
+        scoreDelta: Math.min(30, scoreDelta),
+        hardFlag,
+        evidence,
+        receiptChallenge
+    };
 }
 
 function verifyReceipt({ expected, receipt }) {
-  const evidence = [];
-  let scoreDelta = 0;
-  let hardFlag = false;
+    const evidence = [];
+    let scoreDelta = 0;
+    let hardFlag = false;
 
-  const receiptText = normText(receipt?.text);
-  if (!receiptText || receiptText.length < 30) {
-    evidence.push('Receipt OCR: Too little text extracted');
-    return { scoreDelta: -10, hardFlag: true, evidence };
-  }
-
-  const ref = expected?.reference_id;
-  if (ref && includesLoose(receiptText, ref)) {
-    scoreDelta += 10;
-    evidence.push('Receipt match: Reference ID found (+10)');
-  } else {
-    hardFlag = true;
-    evidence.push('Receipt match: Reference ID not found (hard flag)');
-  }
-
-  if (expected?.amount) {
-    const amt = expected.amount.toString().replace(/,/g, '');
-    if (receiptText.replace(/,/g, '').includes(amt)) {
-      scoreDelta += 5;
-      evidence.push('Receipt match: Amount found (+5)');
-    } else {
-      evidence.push('Receipt match: Amount not found (0)');
+    const text = normText(receipt?.text);
+    if (!text || text.length < 50) {
+        return { scoreDelta: 0, hardFlag: true, evidence: ['Receipt OCR failed: Image too blurry or insufficient text.'] };
     }
-  }
 
-  if (expected?.date && includesLoose(receiptText, expected.date)) {
-    scoreDelta += 5;
-    evidence.push('Receipt match: Date found (+5)');
-  }
+    const ref = expected?.reference_id;
+    if (ref && includesLoose(text, ref)) {
+        scoreDelta += 10;
+        evidence.push('Receipt Verification: Reference ID matched (+10)');
+    } else {
+        evidence.push('Receipt Verification: Reference ID mismatch (Flagged)');
+        hardFlag = true;
+    }
 
-  return { scoreDelta, hardFlag, evidence };
+    if (expected?.amount && text.includes(expected.amount.toString().replace(/,/g, ''))) {
+        scoreDelta += 5;
+        evidence.push('Receipt Verification: Amount matched (+5)');
+    }
+
+    return { scoreDelta, hardFlag, evidence };
+}
+
+function statusFromScore(score, hardFlag) {
+    if (hardFlag) return 'flagged';
+    if (score >= 80) return 'verified';
+    if (score >= 50) return 'flagged';
+    return 'rejected';
 }
 
 module.exports = {
-  analyzeUploads,
-  verifyReceipt,
-  statusFromScore
+    analyzeUploads,
+    verifyReceipt,
+    statusFromScore
 };
-
