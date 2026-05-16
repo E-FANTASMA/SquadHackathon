@@ -34,11 +34,12 @@ function ClaimPage() {
   const patch = useAuthStore((s) => s.patch);
   const navigate = useNavigate();
 
-  const [nin, setNin] = useState(user?.nin ?? "");
+  const [nin, setNin] = useState("");
   const [account, setAccount] = useState("");
   const [bankCode, setBankCode] = useState("");
   const [result, setResult] = useState<"idle" | "match" | "miss">("idle");
   const [busy, setBusy] = useState(false);
+  const [matchedRecord, setMatchedRecord] = useState<any>(null);
 
   const onSearch = async () => {
     if (nin.length !== 11) return toast.error("NIN must be exactly 11 digits");
@@ -55,6 +56,7 @@ function ClaimPage() {
       });
       if (matched && employee) {
         patch({ matchedEmployeeId: employee.id, nin });
+        setMatchedRecord(employee);
         setResult("match");
         toast.success(`Matched: ${employee.name}`);
       } else {
@@ -67,7 +69,7 @@ function ClaimPage() {
     }
   };
 
-  const matched = user?.matchedEmployeeId ? useLedgerStore.getState().employees.find((e) => e.id === user.matchedEmployeeId) : undefined;
+  const matched = matchedRecord || (user?.matchedEmployeeId ? useLedgerStore.getState().employees.find((e) => e.id === user.matchedEmployeeId) : undefined);
 
   return (
     <div className="mx-auto max-w-md px-4 py-6 sm:max-w-xl sm:py-10">

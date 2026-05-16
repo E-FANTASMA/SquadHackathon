@@ -7,14 +7,17 @@ import { useFeedStore } from "@/store/feedStore";
 import { workerService } from "@/services/api";
 import { ScoreBreakdown } from "@/components/common/ScoreBreakdown";
 import { StatusPill } from "@/components/common/StatusPill";
-import { FileText, ImageIcon, Lock, Upload } from "lucide-react";
+import { FileText, ImageIcon, Lock, Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { calcScore, statusFromScore, MAX_SCORE, type VerificationChecks } from "@/lib/scoring";
 
 
 function DocumentsPage() {
   const user = useAuthStore((s) => s.user);
-  const employee = user?.matchedEmployeeId ? useLedgerStore((s) => s.employees.find((e) => e.id === user.matchedEmployeeId)) : undefined;
+  const matchedEmployeeId = user?.matchedEmployeeId;
+  const employee = useLedgerStore((s) => s.employees.find((e) => e.id === matchedEmployeeId));
+  const fetchEmployee = useLedgerStore((s) => s.fetchEmployee);
+  const loading = useLedgerStore((s) => s.loading);
   const pushFeed = useFeedStore((s) => s.push);
 
   const [statementFile, setStatementFile] = useState<File | null>(null);
@@ -23,7 +26,24 @@ function DocumentsPage() {
   const [receiptChallenge, setReceiptChallenge] = useState<any>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
-  if (!user?.matchedEmployeeId || !employee) {
+  useEffect(() => {
+    if (matchedEmployeeId && !employee) {
+      fetchEmployee(matchedEmployeeId);
+    }
+  }, [matchedEmployeeId, employee, fetchEmployee]);
+
+  // If we have an ID but no record yet, we are either loading or about to load.
+  // Show the loader to prevent flashing the "Claim your record" error.
+  if (matchedEmployeeId && !employee) {
+    return (
+      <div className="flex h-[50vh] flex-col items-center justify-center gap-2">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading your status...</p>
+      </div>
+    );
+  }
+
+  if (!matchedEmployeeId || !employee) {
     return (
       <div className="mx-auto max-w-md px-4 py-10 text-center sm:max-w-xl">
         <h1 className="text-xl font-semibold">Claim your record first</h1>

@@ -1,0 +1,27 @@
+-- Copy and paste this into your Supabase SQL Editor to add the appeals functionality safely.
+
+-- 1. Create the APPEALS table
+CREATE TABLE IF NOT EXISTS public.appeals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    worker_id UUID REFERENCES public.workers(id) ON DELETE CASCADE,
+    payroll_worker_id UUID REFERENCES public.payroll_workers(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    admin_comment TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Enable Row Level Security (RLS)
+ALTER TABLE public.appeals ENABLE ROW LEVEL SECURITY;
+
+-- 3. Policy: Allow company admins to view appeals for their department
+CREATE POLICY "Admins can view appeals" ON public.appeals
+    FOR SELECT USING (
+        auth.uid() IN (SELECT admin_id FROM public.companies)
+    );
+
+-- 4. Policy: Allow workers to view and create their own appeals
+CREATE POLICY "Workers can manage their own appeals" ON public.appeals
+    FOR ALL USING (
+        worker_id IN (SELECT id FROM public.workers WHERE profile_id = auth.uid())
+    );

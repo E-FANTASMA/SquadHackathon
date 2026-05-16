@@ -24,24 +24,25 @@ interface LedgerState {
   /** Worker submitted documents — re-derive score from checks. */
   submitDocs: (id: string, checks: VerificationChecks) => Employee | undefined;
   findByNinAndAccount: (nin: string, account: string) => Employee | undefined;
+  fetchEmployee: (id: string) => Promise<void>;
   executeVerifiedPayments: () => number;
 }
 
-function mapWorker(w: any): Employee {
+export function mapWorker(w: any): Employee {
   const status = w.verification_status || "pending";
   return {
     id: w.id,
     name: w.full_name,
     nin: w.nin,
     account: w.account_number,
-    salary: w.salary_amount,
-    department: "Payroll", 
+    salary: w.salary_amount || 0,
+    department: w.department || "Payroll", 
     trustScore: w.trust_score || (status === "verified" ? 100 : status === "flagged" ? 75 : status === "rejected" ? 20 : 0),
     verificationStatus: status as VerificationStatus,
     squadStatus: squadFromStatus(status as VerificationStatus),
     riskScore: 0,
-    hasSubmittedDocs: status !== "pending",
-    checks: {
+    hasSubmittedDocs: !!w.worker_uploads?.length || status !== "pending",
+    checks: w.checks || {
       ninVerified: status === "verified",
       statementAuthentic: status === "verified",
       salaryMatched: status === "verified",
@@ -53,7 +54,7 @@ function mapWorker(w: any): Employee {
       receiptMatch: status === "verified",
       txnRefValid: status === "verified",
     },
-    evidence: [],
+    evidence: w.evidence || [],
     accountAgeDays: 0,
     flagReason: undefined,
     override: false,
@@ -96,6 +97,24 @@ export const useLedgerStore = create<LedgerState>((set, get) => ({
       }
     } catch (err) {
       console.error("DEBUG: fetchWorkers error:", err);
+      set({ loading: false });
+    }
+  },
+  fetchEmployee: async (id) => {
+    set({ loading: true });
+    try {
+      const { employee } = await workerService.status(id);
+      if (employee) {
+        const mapped = mapWorker(employee);
+        set((s) => ({
+          employees: s.employees.some(e => e.id === mapped.id)
+            ? s.employees.map(e => e.id === mapped.id ? mapped : e)
+            : [...s.employees, mapped]
+        }));
+      }
+    } catch (err) {
+      console.error("DEBUG: fetchEmployee error:", err);
+    } finally {
       set({ loading: false });
     }
   },

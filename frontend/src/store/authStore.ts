@@ -68,6 +68,8 @@ export const useAuthStore = create<AuthState>()(
           token: res.session.access_token,
           fullName: res.profile?.full_name,
           companyName: res.profile?.companies?.[0]?.company_name || res.profile?.full_name,
+          nin: res.profile?.workers?.[0]?.nin,
+          matchedEmployeeId: res.profile?.workers?.[0]?.id,
         };
         
         set({ user });

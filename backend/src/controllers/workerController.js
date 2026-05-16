@@ -24,8 +24,15 @@ const workerController = {
                 });
             }
 
-            const finalNin = (worker.nin || requestedNin || '').toString().trim();
+            const finalNin = (requestedNin || '').toString().trim();
             const finalAccount = (account_number || '').toString().trim();
+
+            // SECURITY: Ensure they are claiming for the NIN they signed up with
+            if (worker.nin && finalNin !== worker.nin.toString().trim()) {
+                return res.status(403).json({
+                    error: 'NIN Mismatch: You can only claim payroll records associated with the NIN you provided during signup.'
+                });
+            }
 
             console.log(`DEBUG: Claim attempt - NIN: [${finalNin}], Account: [${finalAccount}]`);
 
@@ -117,6 +124,18 @@ const workerController = {
 
             res.status(200).json({
                 message: `Payroll record claimed. Status: ${status}, Score: ${trust_score}`,
+                matched: true,
+                employee: {
+                    id: worker.id,
+                    payroll_id: payrollRecord.id,
+                    name: payrollRecord.full_name,
+                    nin: payrollRecord.nin,
+                    account: payrollRecord.account_number,
+                    salary: payrollRecord.salary_amount,
+                    department: payrollRecord.department || "Payroll",
+                    verificationStatus: status,
+                    trustScore: trust_score
+                },
                 payrollRecord,
                 trust_score,
                 status,
@@ -377,19 +396,44 @@ const workerController = {
                 .select('*, worker_uploads(*)');
 
             if (employeeId) {
+                // Try to find by workers.id first, but if it looks like a payroll_workers id (matchedEmployeeId), we might need to be flexible.
+                // However, workerService.status usually passes workers.id if we use it consistently.
                 query = query.eq('id', employeeId);
             } else {
                 query = query.eq('profile_id', profile_id);
             }
 
-            const { data, error } = await query.single();
+            const { data: worker, error } = await query.maybeSingle();
 
             if (error) throw error;
+            if (!worker) {
+                return res.status(404).json({ error: 'Worker profile not found.' });
+            }
+
+            // JOIN: Get salary info from payroll_workers by NIN
+            let salary_amount = 0;
+            let department = 'Payroll';
+            if (worker.nin) {
+                const { data: payrollRecord } = await supabaseAdmin
+                    .from('payroll_workers')
+                    .select('salary_amount, department')
+                    .eq('nin', worker.nin)
+                    .maybeSingle();
+                
+                if (payrollRecord) {
+                    salary_amount = payrollRecord.salary_amount;
+                    department = payrollRecord.department || department;
+                }
+            }
 
             res.status(200).json({
-                status: data.verification_status || 'pending',
-                trustScore: data.trust_score || 0,
-                employee: data
+                status: worker.verification_status || 'pending',
+                trustScore: worker.trust_score || 0,
+                employee: {
+                    ...worker,
+                    salary_amount,
+                    department
+                }
             });
         } catch (error) {
             console.error('Get status error:', error);
