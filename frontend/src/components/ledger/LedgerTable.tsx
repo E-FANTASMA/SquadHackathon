@@ -24,38 +24,30 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { cn } from "@/lib/utils";
 import { StatusPill } from "@/components/common/StatusPill";
 import { ScoreBreakdown } from "@/components/common/ScoreBreakdown";
-import { MAX_SCORE, type VerificationChecks, type VerificationStatus } from "@/lib/scoring";
+import { MAX_SCORE, type VerificationStatus } from "@/lib/scoring";
 import { companyService } from "@/services/api";
 import { toast } from "sonner";
 
 export function LedgerTable() {
   const employees = useLedgerStore((s) => s.employees);
   const setOverride = useLedgerStore((s) => s.setOverride);
-  const updateChecks = useLedgerStore((s) => s.updateChecks);
   const execute = useLedgerStore((s) => s.executeVerifiedPayments);
   const pushFeed = useFeedStore((s) => s.push);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [dept, setDept] = useState<string>("all");
   const [sorting, setSorting] = useState<SortingState>([{ id: "trustScore", desc: false }]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<Employee | null>(null);
-
-  const departments = useMemo(
-    () => Array.from(new Set(employees.map((e) => e.department))).sort(),
-    [employees],
-  );
 
   const filtered = useMemo(() => {
     return employees.filter((e) => {
       if (search && !`${e.name} ${e.id} ${e.account} ${e.nin}`.toLowerCase().includes(search.toLowerCase()))
         return false;
-      if (dept !== "all" && e.department !== dept) return false;
       if (statusFilter !== "all" && e.verificationStatus !== statusFilter) return false;
       return true;
     });
-  }, [employees, search, dept, statusFilter]);
+  }, [employees, search, statusFilter]);
 
   const disburseOne = async (e: Employee) => {
     const result = await companyService.disburseToWorker(e.id);
@@ -63,7 +55,7 @@ export function LedgerTable() {
       toast.error(result.reason);
       return;
     }
-    pushFeed({ kind: "released", message: `Squad transfer released · ${naira(e.salary)} → ${e.id} · ${result.ref}` });
+    pushFeed({ kind: "released", message: `Squad transfer released · ${naira(e.salary)} → ${e.name}` });
     toast.success(`Squad transfer released to ${e.name}`);
   };
 
@@ -94,12 +86,11 @@ export function LedgerTable() {
               )}
             </div>
             <div className="text-[11px] text-muted-foreground tabular-nums">
-              {row.original.id} · NIN {row.original.nin}
+              ID {row.original.id.slice(0, 8)} · NIN {row.original.nin}
             </div>
           </div>
         ),
       },
-      { accessorKey: "department", header: "Department" },
       {
         accessorKey: "trustScore",
         header: "Trust Score",
@@ -148,7 +139,7 @@ export function LedgerTable() {
             checked={row.original.override}
             onCheckedChange={(v) => {
               setOverride(row.original.id, v);
-              if (v) pushFeed({ kind: "override", message: `Auditor override applied · ${row.original.id}` });
+              if (v) pushFeed({ kind: "override", message: `Auditor override applied · ${row.original.name}` });
             }}
             aria-label="Manual override"
           />
@@ -170,31 +161,16 @@ export function LedgerTable() {
     initialState: { pagination: { pageSize: 12 } },
   });
 
-  const totalPayroll = employees.reduce((s, e) => s + e.salary, 0);
-  const verifiedCount = employees.filter((e) => e.verificationStatus === "verified" || e.override).length;
-  const flaggedCount = employees.filter((e) => e.verificationStatus === "flagged" && !e.override).length;
-  const rejectedCount = employees.filter((e) => e.verificationStatus === "rejected" && !e.override).length;
-  const blockedSavings = employees
-    .filter((e) => (e.verificationStatus === "flagged" || e.verificationStatus === "rejected") && !e.override)
-    .reduce((s, e) => s + e.salary, 0);
-
   return (
     <div className="rounded-lg border bg-card shadow-[var(--shadow-card)]">
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
         <Input
-          placeholder="Search name, ID, NIN, or account…"
+          placeholder="Search name, NIN, or account…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="h-9 w-full sm:w-64"
         />
-        <Select value={dept} onValueChange={setDept}>
-          <SelectTrigger className="h-9 w-40"><SelectValue placeholder="Department" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All departments</SelectItem>
-            {departments.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-          </SelectContent>
-        </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="h-9 w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
@@ -208,12 +184,14 @@ export function LedgerTable() {
         <div className="flex-1" />
         <Button
           onClick={() => {
+            const cleared = employees.filter((e) => e.verificationStatus === "verified" || e.override);
+            if (cleared.length === 0) return toast.info("No verified payments to execute");
             const n = execute();
             pushFeed({ kind: "released", message: `Squad batch executed · ${n} verified payments released` });
             toast.success(`Squad batch executed · ${n} verified payments released`);
           }}
         >
-          Execute Verified Payments via Squad
+          Execute Verified Batch via Squad
         </Button>
       </div>
 
@@ -242,40 +220,44 @@ export function LedgerTable() {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => {
-              const status = row.original.verificationStatus;
-              const isExpanded = expanded === row.original.id;
-              const tint =
-                status === "rejected"
-                  ? "bg-[color-mix(in_oklab,var(--status-rejected)_8%,transparent)]"
-                  : status === "flagged"
-                    ? "bg-[color-mix(in_oklab,var(--status-flagged)_7%,transparent)]"
-                    : "hover:bg-muted/40";
-              return (
-                <Fragment key={row.id}>
-                  <tr className={cn("border-t transition-colors", tint)}>
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-3 py-2.5 align-middle">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                  {isExpanded && (
-                    <tr className="border-t bg-muted/30">
-                      <td colSpan={row.getVisibleCells().length} className="p-4">
-                        <Evidence employee={row.original} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-            {table.getRowModel().rows.length === 0 && (
+            {table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="p-8 text-center text-sm text-muted-foreground">
-                  No employees match the current filters.
+                <td colSpan={columns.length} className="p-12 text-center">
+                  <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                    <p className="text-sm font-medium">No records match your search</p>
+                    <p className="text-xs">Ensure you have selected a batch with workers.</p>
+                  </div>
                 </td>
               </tr>
+            ) : (
+              table.getRowModel().rows.map((row) => {
+                const status = row.original.verificationStatus;
+                const isExpanded = expanded === row.original.id;
+                const tint =
+                  status === "rejected"
+                    ? "bg-[color-mix(in_oklab,var(--status-rejected)_8%,transparent)]"
+                    : status === "flagged"
+                      ? "bg-[color-mix(in_oklab,var(--status-flagged)_7%,transparent)]"
+                      : "hover:bg-muted/40";
+                return (
+                  <Fragment key={row.id}>
+                    <tr className={cn("border-t transition-colors", tint)}>
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-3 py-2.5 align-middle">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
+                    {isExpanded && (
+                      <tr className="border-t bg-muted/30">
+                        <td colSpan={row.getVisibleCells().length} className="p-4">
+                          <Evidence employee={row.original} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -291,25 +273,22 @@ export function LedgerTable() {
         </div>
       </div>
 
-      {/* Footer summary */}
-      <div className="grid gap-3 border-t bg-[var(--gradient-trust)] p-4 sm:grid-cols-4">
-        <Summary label="Total Payroll" value={naira(totalPayroll)} />
-        <Summary label="Verified" value={`${verifiedCount}`} tone="success" />
-        <Summary label="Flagged" value={`${flaggedCount}`} tone="warning" />
-        <Summary label="Rejected (Savings)" value={naira(blockedSavings)} tone="danger" sub={`${rejectedCount} records`} />
-      </div>
-
       {/* Manual review modal */}
       <Dialog open={!!reviewing} onOpenChange={(o) => !o && setReviewing(null)}>
         <DialogContent className="max-w-2xl">
           {reviewing && (
             <ManualReview
               employee={reviewing}
-              onSave={(checks) => {
-                updateChecks(reviewing.id, checks);
-                pushFeed({ kind: "override", message: `Manual review · ${reviewing.id} re-scored` });
-                toast.success("Verification re-scored");
-                setReviewing(null);
+              onSave={async (status) => {
+                try {
+                  await companyService.updateWorkerStatus({ workerRecordId: reviewing.id, status });
+                  toast.success(`Worker marked as ${status}`);
+                  pushFeed({ kind: "override", message: `Manual review · ${reviewing.name} marked as ${status}` });
+                  setReviewing(null);
+                  window.location.reload();
+                } catch (err: any) {
+                  toast.error(err.message || "Update failed");
+                }
               }}
             />
           )}
@@ -319,26 +298,39 @@ export function LedgerTable() {
   );
 }
 
-function ManualReview({ employee, onSave }: { employee: Employee; onSave: (c: VerificationChecks) => void }) {
-  const [checks, setChecks] = useState<VerificationChecks>(employee.checks);
+function ManualReview({ employee, onSave }: { employee: Employee; onSave: (status: VerificationStatus) => void }) {
   return (
     <>
       <DialogHeader>
         <DialogTitle>Manual Review · {employee.name}</DialogTitle>
         <DialogDescription>
-          {employee.id} · {employee.department} · Tap any check to award or remove its points. Decision is recorded in the audit trail.
+          NIN {employee.nin} · Account {employee.account}
+          <br />
+          Review the uploaded documents and decide if this worker is legitimate.
         </DialogDescription>
       </DialogHeader>
-      <div className="py-2">
-        <ScoreBreakdown
-          checks={checks}
-          editable
-          onToggle={(k, v) => setChecks({ ...checks, [k]: v })}
-        />
+      
+      <div className="grid gap-4 py-4 lg:grid-cols-2">
+        <div className="rounded-md border p-3">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Uploaded Statement</h4>
+          <div className="flex h-32 items-center justify-center bg-muted rounded">
+            <Button variant="link" onClick={() => window.open('#', '_blank')}>View PDF</Button>
+          </div>
+        </div>
+        <div className="rounded-md border p-3">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">App Screenshot</h4>
+          <div className="flex h-32 items-center justify-center bg-muted rounded">
+            <Button variant="link" onClick={() => window.open('#', '_blank')}>View Image</Button>
+          </div>
+        </div>
       </div>
-      <DialogFooter>
-        <Button variant="outline" onClick={() => setChecks(employee.checks)}>Reset</Button>
-        <Button onClick={() => onSave(checks)}>Save & Re-score</Button>
+
+      <DialogFooter className="sm:justify-between">
+        <div className="flex gap-2">
+          <Button variant="destructive" onClick={() => onSave('rejected')}>Reject</Button>
+          <Button variant="outline" onClick={() => onSave('flagged')}>Keep Flagged</Button>
+        </div>
+        <Button onClick={() => onSave('verified')} className="bg-[color:var(--status-verified)] hover:bg-[color:var(--status-verified)]/90">Verify & Approve</Button>
       </DialogFooter>
     </>
   );
@@ -363,27 +355,7 @@ function TrustBadge({ score }: { score: number }) {
   );
 }
 
-function Summary({ label, value, sub, tone = "default" }: { label: string; value: string; sub?: string; tone?: "default" | "success" | "danger" | "warning" }) {
-  const color =
-    tone === "success" ? "var(--status-verified)" :
-    tone === "danger" ? "var(--status-rejected)" :
-    tone === "warning" ? "var(--status-flagged)" :
-    "var(--foreground)";
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-lg font-semibold tabular-nums" style={{ color }}>{value}</div>
-      {sub && <div className="text-[11px] text-muted-foreground">{sub}</div>}
-    </div>
-  );
-}
-
 function Evidence({ employee }: { employee: Employee }) {
-  const all = useLedgerStore((s) => s.employees);
-  const peers =
-    employee.flagReason === "Shared Account"
-      ? all.filter((e) => e.account === employee.account && e.id !== employee.id).slice(0, 4)
-      : [];
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div>
@@ -406,17 +378,9 @@ function Evidence({ employee }: { employee: Employee }) {
           <div>// Bank statement excerpt (parsed by AI OCR)</div>
           <div>ACCT: {employee.account}</div>
           <div>NAME: {employee.name.toUpperCase()}</div>
-          <div>OPENED: {employee.accountAgeDays} days ago</div>
-          <div>EXPECTED CREDIT: ₦{employee.salary.toLocaleString()}</div>
+          <div>OPENED: {employee.accountAgeDays || 'N/A'} days ago</div>
+          <div>EXPECTED CREDIT: ₦{Number(employee.salary).toLocaleString()}</div>
         </div>
-        {peers.length > 0 && (
-          <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Account Sharing Map</h4>
-            <div className="rounded-md border bg-background">
-              <TransactionMap employee={employee} peers={peers} />
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

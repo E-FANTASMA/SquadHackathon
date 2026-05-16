@@ -1,4 +1,4 @@
-const { supabase } = require('../config/supabase');
+const { supabase, supabaseAdmin } = require('../config/supabase');
 
 const authMiddleware = async (req, res, next) => {
     // Toggle for testing without JWT
@@ -28,9 +28,9 @@ const authMiddleware = async (req, res, next) => {
             return res.status(401).json({ error: 'Invalid or expired token' });
         }
 
-        // Fetch user profile from public.users
-        const { data: profile, error: profileError } = await supabase
-            .from('users')
+        // Fetch user profile from public.profiles using admin client to bypass RLS in middleware
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
             .select('*, companies(*)')
             .eq('id', user.id)
             .single();

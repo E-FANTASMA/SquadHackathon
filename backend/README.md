@@ -12,48 +12,56 @@ This is the backend for the PayGuard AI platform, built with Node.js, Express, S
 Create a `.env` file in the `backend/` directory:
 ```env
 PORT=5000
-DISABLE_AUTH=true # Toggle to 'false' for production JWT verification
+DISABLE_AUTH=false
 
 # Supabase
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_URL=...
+SUPABASE_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
 
 # Squad API
-SQUAD_SECRET_KEY=your_squad_secret_key
+SQUAD_SECRET_KEY=...
 SQUAD_BASE_URL=https://sandbox-api-d.squadco.com
-SQUAD_MERCHANT_ID=SQ-PAYGUARD # Fallback merchant ID for references
+SQUAD_MERCHANT_ID=SQ-PAYGUARD
+FRONTEND_URL=http://localhost:8080
 ```
 
 ## API Endpoints
 
-### 1. Payroll & Funding (`/api/payroll`)
+### 1. Company / Payroll Administration (`/api/company`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| POST | `/api/payroll/upload-payroll` | Upload master payroll Excel file. |
-| GET | `/api/payroll/payroll-batches` | Get list of all payroll batches. |
-| POST | `/api/payroll/initiate-funding` | Generate a Squad checkout URL to fund a batch. |
-| POST | `/api/payroll/simulate-funding` | (Sandbox) Mock a successful payment into a batch. |
-| POST | `/api/payroll/disburse` | **AI-Gated:** Pay verified workers via Squad Transfer. |
-| GET | `/api/payroll/verify/:reference` | Verify transfer status with Squad. |
+| POST | `/api/company/upload-payroll` | Upload master payroll Excel file. |
+| GET | `/api/company/payroll-batches` | Get list of all payroll batches. |
+| GET | `/api/company/batch-workers/:id` | Get individual worker records for a batch. |
+| POST | `/api/company/update-worker-status` | Manually Verify/Reject a flagged worker. |
+| DELETE | `/api/company/delete-batch/:id` | Remove batch and its worker records. |
+| POST | `/api/company/squad/disburse` | **AI-Gated:** Release Squad payout to a verified worker. |
+| POST | `/api/company/wallet/fund` | Initiate treasury wallet funding via Squad Checkout. |
 
 ### 2. Authentication (`/api/auth`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | POST | `/api/auth/company/signup` | Signup for Government Ministry/Department. |
-| POST | `/api/auth/worker/signup` | Signup for individual workers. |
-| POST | `/api/auth/company/login` | Universal login (returns JWT). |
+| POST | `/api/auth/worker/signup` | **NIN-Enforced:** Signup for workers (must match payroll). |
+| POST | `/api/auth/company/login` | Universal login (returns JWT and profile data). |
 
 ### 3. Worker Portal (`/api/worker`)
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| POST | `/api/worker/claim-record` | Match bank details to an uploaded payroll entry. |
-| POST | `/api/worker/upload-documents` | Upload ID proof for AI/Admin verification. |
-| GET | `/api/worker/status` | Check verification and payment progress. |
+| POST | `/api/worker/claim-record` | Match bank account to an uploaded payroll entry. |
+| POST | `/api/worker/submit-documents` | Upload Statement (PDF) and App Screenshot (Img). |
+| GET | `/api/worker/status` | Check AI trust score and verification status. |
 
-## Core Logic: "NO AI APPROVAL = NO PAYMENT"
-The disbursement logic in `controllers/payrollController.js` ensures that `squadService.disburseFunds` is only called if the worker's status is `verified`. Every step of the funding and disbursement process is recorded in the `audit_logs` table for full transparency.
+### 4. Squad Infrastructure (`/api/payment`)
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| GET | `/api/payment/balance` | Fetch live Squad merchant ledger balance. |
+| POST | `/api/payment/webhook` | Public endpoint for Squad event notifications. |
+
+## Core Logic: "Verify Before Pay"
+The system ensures treasury safety by requiring workers to be in `verified` status before any Squad transfer can be released. Discrepancies between payroll data and worker-submitted documents (Statement vs App Screenshot) trigger a `flagged` status, locking the disbursement until a manual audit is performed.
 
 ## Testing
-- Use the `SAMPLE_REQUESTS.md` file for example cURL commands.
-- Use `000013` (GTBank) as the bank code for stable testing in the Squad sandbox.
+- UseGTBank (`058`) as the bank code for stable testing in the Squad sandbox.
+- Ensure NIN used during worker signup exists in the uploaded Excel master list.

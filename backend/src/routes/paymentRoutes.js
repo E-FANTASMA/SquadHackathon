@@ -11,5 +11,6 @@ router.use(authMiddleware);
 
 router.post('/fund-batch', authorize(['company_admin']), paymentController.fundBatch);
 router.post('/disburse', authorize(['company_admin']), paymentController.disburseSalaries);
+router.get('/balance', authorize(['company_admin']), paymentController.getSquadBalance);
 
 module.exports = router;

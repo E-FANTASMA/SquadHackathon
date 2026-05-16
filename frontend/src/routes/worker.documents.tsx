@@ -33,26 +33,32 @@ function DocumentsPage() {
 
   const locked = employee.verificationStatus === "rejected" && !employee.override;
 
-  const submit = () => {
-    if (!statementFile && !screenshotFile) return toast.error("Upload at least one document");
-    // Simulated AI scoring: each upload awards a check
-    const newChecks: VerificationChecks = {
-      ninVerified: true,
-      nameMatch: true,
-      statementValid: !!statementFile,
-      screenshotMatch: !!screenshotFile,
-      receiptMatch: !!screenshotFile,
-      txnRefValid: !!statementFile && !!screenshotFile,
-    };
-    const finalScore = calcScore(newChecks);
-    runTally(finalScore, async () => {
-      await workerService.submitDocuments(employee.id, newChecks);
-      pushFeed({ kind: "info", message: `Worker submitted documents · ${employee.id} · score ${finalScore}` });
-      const status = statusFromScore(finalScore, true);
-      if (status === "verified") toast.success(`Verified! Trust score ${finalScore}/${MAX_SCORE}`);
-      else if (status === "flagged") toast.warning(`Flagged for review · score ${finalScore}/${MAX_SCORE}`);
-      else toast.error(`Rejected · score ${finalScore}/${MAX_SCORE}`);
-    });
+  const submit = async () => {
+    if (!statementFile || !screenshotFile) return toast.error("Both bank statement and transaction screenshot are required");
+    
+    setTally(0);
+    try {
+      const formData = new FormData();
+      formData.append("statement", statementFile);
+      formData.append("screenshot", screenshotFile);
+      
+      const res: any = await workerService.submitDocuments(employee.id, formData as any);
+      
+      pushFeed({ kind: "info", message: `Worker submitted documents · ${employee.id}` });
+      
+      // Simulate tally for UI effect
+      runTally(res.trustScore || 75, () => {
+        toast.info(res.message);
+        if (res.verification_status === "verified") toast.success(`Verified!`);
+        else if (res.verification_status === "flagged") toast.warning(`Flagged for review`);
+        
+        // Refresh status
+        window.location.reload();
+      });
+    } catch (error: any) {
+      toast.error(error.message || "Upload failed");
+      setTally(null);
+    }
   };
 
   const runTally = (target: number, done: () => void) => {
@@ -91,7 +97,7 @@ function DocumentsPage() {
         <DocCard
           icon={<FileText className="h-6 w-6" />}
           title="Bank Statement"
-          subtitle="PDF · last 3 months"
+          subtitle="PDF · last month's statement"
           file={statementFile}
           onFile={setStatementFile}
           accept="application/pdf"
@@ -99,8 +105,8 @@ function DocumentsPage() {
         />
         <DocCard
           icon={<ImageIcon className="h-6 w-6" />}
-          title="Transaction Screenshot"
-          subtitle="Image · most recent salary credit"
+          title="App Transaction History"
+          subtitle="Screenshot · showing at least 10 recent transactions"
           file={screenshotFile}
           onFile={setScreenshotFile}
           accept="image/*"

@@ -196,18 +196,29 @@ const payrollController = {
     fundWallet: async (req, res) => {
         try {
             const { amount, email } = req.body;
+            const merchantId = process.env.SQUAD_MERCHANT_ID || 'SQ-PAYGUARD';
 
             if (!amount || amount <= 0) {
                 return res.status(400).json({ error: 'Valid amount is required' });
             }
 
+            // Generate reference as per user request: random generated id_random-merchant id
+            const randomId = uuidv4().split('-')[0].toUpperCase();
+            const transactionRef = `${randomId}_${merchantId}`;
+
+            // Determine callback URL (should point to frontend)
+            const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/admin/wallet?amount=${amount}`;
+
             // Initiate payment via Squad
-            const transactionRef = `WAL-${uuidv4()}`;
             const squadResponse = await squadService.initiatePayment({
                 amount: amount,
                 email: email || req.user?.email || 'finance@ministry.gov.ng',
                 transaction_ref: transactionRef,
-                metadata: { event_type: 'WALLET_FUNDING' }
+                currency: 'NGN',
+                pass_charge: true,
+                is_recurring: false,
+                callback_url: callbackUrl,
+                metadata: { event_type: 'WALLET_FUNDING', profile_id: req.user?.id }
             });
 
             // Log event
@@ -222,7 +233,8 @@ const payrollController = {
                 ok: true,
                 message: 'Funding initiated',
                 checkout_url: squadResponse.data.checkout_url,
-                transaction_ref: transactionRef
+                transaction_ref: transactionRef,
+                data: squadResponse.data // Return full squad data
             });
 
         } catch (error) {
@@ -251,10 +263,13 @@ const payrollController = {
             }
 
             // 2. Initiate payment via Squad
-            const transactionRef = `FUND-${uuidv4()}`;
+            const merchantId = process.env.SQUAD_MERCHANT_ID || 'SQ-PAYGUARD';
+            const randomId = uuidv4().split('-')[0].toUpperCase();
+            const transactionRef = `${randomId}_${merchantId}`;
+
             const squadResponse = await squadService.initiatePayment({
                 amount: batch.total_amount,
-                email: email || 'finance@ministry.gov.ng',
+                email: email || req.user?.email || 'finance@ministry.gov.ng',
                 transaction_ref: transactionRef,
                 metadata: { batch_id: batchId, event_type: 'PAYROLL_FUNDING' }
             });
@@ -357,12 +372,18 @@ const payrollController = {
         }
     },
 
-    // --- Original methods preserved ---
-
     uploadPayroll: async (req, res) => {
         try {
             const { batch_name } = req.body;
-            const company_id = req.profile.company_id;
+            
+            // req.profile is populated by authMiddleware and includes companies
+            const company = req.profile?.companies?.[0];
+            
+            if (!company) {
+                return res.status(403).json({ error: 'No ministry/company linked to your admin account.' });
+            }
+
+            const company_id = company.id;
 
             if (!req.file) {
                 return res.status(400).json({ error: 'No file uploaded' });
@@ -385,13 +406,14 @@ const payrollController = {
             const firstRow = data[0];
             for (const col of requiredColumns) {
                 if (!(col in firstRow)) {
-                    return res.status(400).json({ error: `Missing required column: ${col}` });
+                    return res.status(400).json({ error: `Missing required column: ${col}. Please use the template.` });
                 }
             }
 
             const fileName = `${company_id}/${Date.now()}_${req.file.originalname}`;
             await storageUtils.uploadFile('payroll_excels', fileName, req.file.buffer, req.file.mimetype);
 
+            // 3. Create Payroll Batch
             const total_workers = data.length;
             const total_amount = data.reduce((sum, row) => sum + parseFloat(row.salary_amount || 0), 0);
 
@@ -428,7 +450,7 @@ const payrollController = {
             if (workersError) throw workersError;
 
             res.status(201).json({
-                message: 'Payroll batch uploaded and processed successfully',
+                message: 'Payroll batch processed successfully',
                 batch: batchData,
                 workerCount: payrollWorkers.length
             });
@@ -441,12 +463,16 @@ const payrollController = {
 
     getPayrollBatches: async (req, res) => {
         try {
-            const company_id = req.profile.company_id;
+            const company = req.profile?.companies?.[0];
+            
+            if (!company) {
+                return res.status(403).json({ error: 'No ministry/company linked to your account.' });
+            }
 
             const { data, error } = await supabaseAdmin
                 .from('payroll_batches')
                 .select('*')
-                .eq('company_id', company_id)
+                .eq('company_id', company.id)
                 .order('upload_date', { ascending: false });
 
             if (error) throw error;
@@ -461,14 +487,19 @@ const payrollController = {
     getBatchWorkers: async (req, res) => {
         try {
             const { batchId } = req.params;
+            console.log(`DEBUG: Fetching workers for batch: ${batchId}`);
 
             const { data, error } = await supabaseAdmin
                 .from('payroll_workers')
                 .select('*')
                 .eq('payroll_batch_id', batchId);
 
-            if (error) throw error;
+            if (error) {
+                console.error(`DEBUG: Supabase error fetching workers: ${error.message}`);
+                throw error;
+            }
 
+            console.log(`DEBUG: Found ${data ? data.length : 0} workers for batch ${batchId}`);
             res.status(200).json(data);
         } catch (error) {
             console.error('Get batch workers error:', error);
@@ -479,7 +510,6 @@ const payrollController = {
     updateWorkerStatus: async (req, res) => {
         try {
             const { workerRecordId, status } = req.body;
-            const company_id = req.profile.company_id;
 
             if (!['verified', 'rejected', 'flagged'].includes(status)) {
                 return res.status(400).json({ error: 'Invalid status' });
@@ -500,6 +530,55 @@ const payrollController = {
             });
         } catch (error) {
             console.error('Update status error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    deleteBatch: async (req, res) => {
+        try {
+            const { batchId } = req.params;
+            const profile_id = req.user.id;
+
+            // Ensure company owns the batch
+            const { data: company, error: companyError } = await supabaseAdmin
+                .from('companies')
+                .select('id')
+                .eq('admin_id', profile_id)
+                .single();
+
+            if (companyError || !company) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+
+            const { data: batch, error: batchError } = await supabaseAdmin
+                .from('payroll_batches')
+                .select('id')
+                .eq('id', batchId)
+                .eq('company_id', company.id)
+                .single();
+
+            if (batchError || !batch) {
+                return res.status(404).json({ error: 'Batch not found or not owned by your company' });
+            }
+
+            // Cascade delete will handle payroll_workers if set up, but let's be explicit if not
+            const { error: deleteWorkersError } = await supabaseAdmin
+                .from('payroll_workers')
+                .delete()
+                .eq('payroll_batch_id', batchId);
+
+            if (deleteWorkersError) throw deleteWorkersError;
+
+            const { error: deleteBatchError } = await supabaseAdmin
+                .from('payroll_batches')
+                .delete()
+                .eq('id', batchId);
+
+            if (deleteBatchError) throw deleteBatchError;
+
+            res.status(200).json({ message: 'Batch and associated records deleted successfully' });
+        } catch (error) {
+            console.error('Delete batch error:', error);
             res.status(500).json({ error: error.message });
         }
     }

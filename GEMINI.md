@@ -1,83 +1,69 @@
 # GEMINI.md - Project Context & Instructions
 
 ## Project Overview
-**Name:** Payroll Verification & Anti-Ghost-Worker System
-**Type:** Full-stack Web Application (Backend-focused)
-**Purpose:** A system designed to verify payroll records and prevent "ghost workers" by integrating biometric/identity verification (NIN) and secure payment processing.
+**Name:** PayGuard AI (Payroll Verification & Anti-Ghost-Worker System)
+**Type:** Full-stack Web Application
+**Purpose:** A system designed to verify payroll records and prevent "ghost workers" by integrating identity verification (NIN), document AI verification (Bank Statements), and secure payment processing via Squad API.
 
 ### Key Technologies
-- **Backend:** Node.js with Express.js
-- **Database:** Supabase (PostgreSQL)
-- **Authentication:** Supabase Auth
-- **File Storage:** Supabase Storage (for payroll files and worker documents)
-- **Payment & Verification:** Squad API (Bank account verification, NIN verification, Payouts)
-- **Excel Processing:** `xlsx` library for parsing payroll uploads
+- **Frontend:** React (TypeScript), Vite, TailwindCSS, Lucide Icons, Shadcn UI.
+- **Backend:** Node.js with Express.js.
+- **Database:** Supabase (PostgreSQL) with Row-Level Security (RLS).
+- **Authentication:** Supabase Auth with custom Profile triggers.
+- **File Storage:** Supabase Storage (for payroll excels, statements, and screenshots).
+- **Payment & Verification:** Squad API (Balance retrieval, Bank verification, Payouts, Checkout).
+- **Excel Processing:** `xlsx` library for parsing payroll uploads.
 
 ### Architecture
 The project follows a modular Express architecture:
 - `backend/server.js`: Server entry point.
-- `backend/src/app.js`: Application setup, middleware, and route registration.
-- `backend/src/routes/`: API endpoint definitions.
-- `backend/src/controllers/`: Request handling and business logic.
+- `backend/src/app.js`: Application setup and route registration.
+- `backend/src/routes/`: API endpoint definitions (Auth, Payroll, Worker, Payment).
+- `backend/src/controllers/`: Request handling and core business logic.
 - `backend/src/services/`: Integration with external services like Squad API.
-- `backend/src/models/`: Database abstraction models for Transfers, Virtual Accounts, and Audit Logs.
-- `backend/src/middleware/`: Authentication and role-based authorization logic.
-- `backend/src/config/`: Configuration for Supabase and other services.
+- `backend/src/middleware/`: JWT Authentication and role-based authorization.
+- `backend/src/config/`: Configuration for Supabase and Squad clients.
 
-## PayGuard AI Integration (Squad API)
-The system is integrated with the Squad API to provide:
-- **Automated Disbursement:** Salary payments triggered only after AI approval.
-- **Transaction Verification:** Real-time status checks for all transfers.
-- **Audit System:** Comprehensive logging of all financial and administrative actions.
+## Key Logic & Workflows
 
-### Key Logic: AI-Controlled Payments
-The `disburse` logic in `payrollController.js` enforces the core rule: **NO AI APPROVAL = NO PAYMENT**. Payments are only initiated if the worker's `verification_status` is marked as `verified`.
+### 1. Registration & Security
+- **Strict Worker Signup:** Workers can only register if their **NIN and Name** match an existing payroll record uploaded by an employer. Access is denied if no matching record is found in the "Decision Ledger".
+- **Role-Based Access:** Distinction between `company_admin` (Government Department) and `worker` (Employee).
+
+### 2. Payroll Management
+- **Ministry-Level Organization:** Each company account represents a distinct government department. No sub-department grouping is used.
+- **Batch Processing:** Payroll is uploaded via Excel. Records default to a `pending` status.
+- **Batch Cleanup:** Admins can delete older batches, which cascade-deletes associated worker records to maintain a clean workspace.
+
+### 3. AI-Verified Disbursement (Squad API)
+- **The Core Rule:** **NO AI APPROVAL = NO PAYMENT**.
+- **Verification Flow:** Workers must upload a **Bank Statement** (PDF) and a **Bank App Screenshot** (showing 10+ transactions).
+- **AI Analysis:** The system compares document data. If discrepancies are found, the record is `flagged` for Manual Admin Review.
+- **Payouts:** Transfers are only initiated for workers with `verified` status.
+
+### 4. Wallet & Funding
+- **Live Balance:** Real-time retrieval of Squad Ledger Balance (in NGN) directly on the dashboard.
+- **Secure Funding:** Batch funding uses Squad Checkout. Success is confirmed via a callback with an `amount` parameter to immediately update the available balance.
 
 ## Building and Running
 
-### Prerequisites
-- Node.js installed.
-- Supabase project configured with `users`, `payroll_batches`, and `payroll_workers` tables.
-- Squad API keys (Secret Key and Base URL).
-
-### Environment Variables
-Create a `.env` file in the `backend/` directory with the following variables:
+### Environment Variables (.env)
 ```env
 PORT=5000
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-SQUAD_SECRET_KEY=your_squad_secret_key
-SQUAD_BASE_URL=https://sandbox-api-d.squadco.com  # Use sandbox for development
+SUPABASE_URL=...
+SUPABASE_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SQUAD_SECRET_KEY=...
+SQUAD_BASE_URL=https://sandbox-api-d.squadco.com
+SQUAD_MERCHANT_ID=...
+FRONTEND_URL=http://localhost:8080
 ```
 
-### Key Commands
-Run these commands from the `backend/` directory:
-- **Install Dependencies:** `npm install`
-- **Start Production:** `npm start`
-- **Start Development (with Nodemon):** `npm run dev`
-- **Test:** `npm test` (Note: Currently no tests specified in `package.json`)
+### Key Commands (Root)
+- `npm run install-all`: Install both frontend and backend dependencies.
+- `npm run dev`: Start both servers concurrently.
 
 ## Development Conventions
-
-### API Design
-- Follows RESTful principles.
-- Endpoints are prefixed with `/api`.
-- Protected routes require an `Authorization: Bearer <token>` header using Supabase JWTs.
-
-### Error Handling
-- Controllers use `try-catch` blocks and return consistent JSON error responses: `{ error: "message" }`.
-
-### Database Access
-- Primarily uses `supabaseAdmin` for backend tasks to bypass RLS when necessary, while standard `supabase` client is used where user-level permissions apply.
-
-### Contribution Guidelines
-- Ensure any new tables or schema changes are documented in `backend/database/schema.sql`.
-- Follow the existing module structure for new features (Route -> Controller -> Service).
-
-## Key Files
-- `backend/server.js`: Entry point for the Node server.
-- `backend/src/app.js`: Express app configuration.
-- `backend/src/services/squadService.js`: Core logic for interacting with Squad API.
-- `backend/src/controllers/payrollController.js`: Logic for payroll uploads and worker management.
-- `payment/hold.html`: A sample checkout page for testing Squad integration.
+- **API Prefixes:** All backend endpoints are prefixed with `/api`.
+- **Naming:** Backend uses `snake_case` for database fields; Frontend maps these to `camelCase` where appropriate.
+- **Audit Logs:** All financial actions (funding, disbursement) and security actions (overrides) are logged in `public.audit_logs`.

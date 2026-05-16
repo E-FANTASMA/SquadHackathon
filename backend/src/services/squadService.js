@@ -97,18 +97,20 @@ const squadService = {
 
     /**
      * Initiate Payment
-     * Returns a checkout URL for the ministry to fund a payroll batch.
+     * Returns a checkout URL for the ministry to fund a payroll batch or wallet.
      */
     initiatePayment: async (paymentData) => {
         try {
             const response = await squadApi.post('/transaction/initiate', {
                 amount: Math.round(paymentData.amount * 100).toString(),
                 email: paymentData.email,
-                currency: 'NGN',
+                currency: paymentData.currency || 'NGN',
                 initiate_type: 'inline',
                 transaction_ref: paymentData.transaction_ref,
-                callback_url: paymentData.callback_url || 'http://localhost:5000/health',
-                metadata: paymentData.metadata || {}
+                callback_url: paymentData.callback_url || 'http://localhost:8080/admin/wallet',
+                metadata: paymentData.metadata || {},
+                pass_charge: paymentData.pass_charge !== undefined ? paymentData.pass_charge : true,
+                is_recurring: paymentData.is_recurring !== undefined ? paymentData.is_recurring : false
             });
             return response.data;
         } catch (error) {
@@ -160,6 +162,22 @@ const squadService = {
             return response.data;
         } catch (error) {
             console.error('Squad Bank Verify Error:', error.response?.data || error.message);
+            throw error;
+        }
+    },
+
+    /**
+     * Get Merchant Balance
+     * This endpoint allows you to get your Squad Account Balance in KOBO.
+     */
+    getMerchantBalance: async (currency_id = 'NGN') => {
+        try {
+            const response = await squadApi.get(`/merchant/balance`, {
+                params: { currency_id }
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Squad Merchant Balance Error:', error.response?.data || error.message);
             throw error;
         }
     }

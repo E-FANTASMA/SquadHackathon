@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import { generateEmployees, type Employee, type SquadStatus } from "@/lib/mockData";
+import { type Employee, type SquadStatus } from "@/lib/mockData";
 import {
   calcScore,
   statusFromScore,
   type VerificationChecks,
   type VerificationStatus,
 } from "@/lib/scoring";
+import { companyService } from "@/services/api";
 
 function squadFromStatus(v: VerificationStatus): SquadStatus {
   if (v === "verified") return "RELEASED";
@@ -15,6 +16,8 @@ function squadFromStatus(v: VerificationStatus): SquadStatus {
 
 interface LedgerState {
   employees: Employee[];
+  loading: boolean;
+  fetchWorkers: (batchId?: string) => Promise<void>;
   setOverride: (id: string, value: boolean) => void;
   setStatus: (id: string, status: SquadStatus) => void;
   updateChecks: (id: string, checks: VerificationChecks) => void;
@@ -22,6 +25,39 @@ interface LedgerState {
   submitDocs: (id: string, checks: VerificationChecks) => Employee | undefined;
   findByNinAndAccount: (nin: string, account: string) => Employee | undefined;
   executeVerifiedPayments: () => number;
+}
+
+function mapWorker(w: any): Employee {
+  const status = w.verification_status || "pending";
+  return {
+    id: w.id,
+    name: w.full_name,
+    nin: w.nin,
+    account: w.account_number,
+    salary: w.salary_amount,
+    department: "Payroll", 
+    trustScore: w.trust_score || (status === "verified" ? 100 : status === "flagged" ? 75 : status === "rejected" ? 20 : 0),
+    verificationStatus: status as VerificationStatus,
+    squadStatus: squadFromStatus(status as VerificationStatus),
+    riskScore: 0,
+    hasSubmittedDocs: status !== "pending",
+    checks: {
+      ninVerified: status === "verified",
+      statementAuthentic: status === "verified",
+      salaryMatched: status === "verified",
+      accountAgeValid: status === "verified",
+      noSharedAccount: status === "verified",
+      nameMatch: status === "verified",
+      statementValid: status === "verified",
+      screenshotMatch: status === "verified",
+      receiptMatch: status === "verified",
+      txnRefValid: status === "verified",
+    },
+    evidence: [],
+    accountAgeDays: 0,
+    flagReason: undefined,
+    override: false,
+  };
 }
 
 function recompute(e: Employee, checks: VerificationChecks, hasSubmitted = true): Employee {
@@ -33,16 +69,43 @@ function recompute(e: Employee, checks: VerificationChecks, hasSubmitted = true)
 }
 
 export const useLedgerStore = create<LedgerState>((set, get) => ({
-  employees: generateEmployees(220),
+  employees: [],
+  loading: false,
+  fetchWorkers: async (batchId) => {
+    set({ loading: true });
+    try {
+      console.log("DEBUG: fetchWorkers called with batchId:", batchId);
+      let data;
+      if (batchId) {
+        data = await companyService.getBatchWorkers(batchId);
+      } else {
+        const batches = await companyService.listBatches();
+        console.log("DEBUG: fetched batches:", batches);
+        if (batches.length > 0) {
+          data = await companyService.getBatchWorkers(batches[0].id);
+        } else {
+          data = [];
+        }
+      }
+      console.log("DEBUG: raw worker data:", data);
+      if (Array.isArray(data)) {
+        set({ employees: data.map(mapWorker), loading: false });
+      } else {
+        console.warn("DEBUG: worker data is not an array:", data);
+        set({ employees: [], loading: false });
+      }
+    } catch (err) {
+      console.error("DEBUG: fetchWorkers error:", err);
+      set({ loading: false });
+    }
+  },
   setOverride: (id, value) =>
     set((s) => ({
       employees: s.employees.map((e) => {
         if (e.id !== id) return e;
-        // Manual override forces verified
         if (value) {
           return { ...e, override: true, verificationStatus: "verified", squadStatus: "RELEASED" };
         }
-        // Revert to score-derived status
         return recompute({ ...e, override: false }, e.checks, e.hasSubmittedDocs);
       }),
     })),

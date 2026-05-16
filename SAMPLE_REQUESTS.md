@@ -1,15 +1,34 @@
 # PayGuard AI - Squad Integration API Samples
 
-This document provides sample requests for the new Squad-integrated payroll endpoints.
+This document provides sample requests for the Squad-integrated payroll and worker endpoints.
 
-## 1. Initiate Funding for a Batch
-**Endpoint:** `POST /api/payroll/initiate-funding`  
-**Description:** Generates a checkout URL for a ministry to pay for a specific payroll batch.
+## 1. Merchant Balance Retrieval
+**Endpoint:** `GET /api/payment/balance`  
+**Description:** Fetches the live NGN ledger balance for the merchant from Squad.
+
+**Response:**
+```json
+{
+  "status": 200,
+  "message": "Success",
+  "data": {
+    "balance": 50000000,
+    "currency": "NGN"
+  }
+}
+```
+*(Note: Balance is returned in Kobo)*
+
+---
+
+## 2. Wallet Funding (Direct)
+**Endpoint:** `POST /api/company/wallet/fund`  
+**Description:** Initiates a wallet funding transaction via Squad Checkout.
 
 **Request Body:**
 ```json
 {
-  "batchId": "YOUR_BATCH_UUID",
+  "amount": 500000,
   "email": "finance@ministry.gov.ng"
 }
 ```
@@ -17,77 +36,65 @@ This document provides sample requests for the new Squad-integrated payroll endp
 **Response:**
 ```json
 {
-  "message": "Funding initiated. Please complete payment using the checkout URL.",
+  "ok": true,
   "checkout_url": "https://sandbox-pay.squadco.com/FUND-...",
-  "transaction_ref": "FUND-..."
+  "transaction_ref": "REF_RANDOM_MERCHANTID"
 }
 ```
 
 ---
 
-## 3. Simulate Funding (Sandbox Demo)
-**Endpoint:** `POST /api/payroll/simulate-funding`  
-**Description:** Mocks a successful payment into the dynamic virtual account created by the checkout modal.
+## 3. Worker Verification (Document Upload)
+**Endpoint:** `POST /api/worker/submit-documents`  
+**Description:** Allows a worker to upload their bank statement and transaction screenshot for AI comparison.
+
+**Request:** `multipart/form-data`
+- `statement`: (PDF File)
+- `screenshot`: (Image File)
+
+**Response:**
+```json
+{
+  "message": "Documents uploaded successfully. AI is comparing transactions. Status: Flagged for Admin Review.",
+  "verification_status": "flagged"
+}
+```
+
+---
+
+## 4. Manual Status Override (Admin)
+**Endpoint:** `POST /api/company/update-worker-status`  
+**Description:** Allows an admin to manually set a worker's status after document review.
 
 **Request Body:**
 ```json
 {
-  "virtual_account_number": "9279755518",
-  "amount": 150000,
-  "batchId": "YOUR_BATCH_UUID"
+  "workerRecordId": "BATCH_WORKER_UUID",
+  "status": "verified"
 }
 ```
 
 ---
 
-## 4. Disburse Salary (AI-Approved Only)
-**Endpoint:** `POST /api/payroll/disburse`  
-**Description:** Triggers a salary payment to a worker ONLY if they have been approved by the AI risk engine.
+## 5. Disburse Salary (AI-Approved Only)
+**Endpoint:** `POST /api/company/squad/disburse`  
+**Description:** Triggers a salary payment ONLY if verification_status is 'verified'.
 
 **Request Body:**
 ```json
 {
-  "workerRecordId": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
-  "bank_code": "058"
-}
-```
-
-**Response (Success):**
-```json
-{
-  "message": "Disbursement initiated successfully",
-  "transfer": {
-    "transfer_reference": "PYG-abcd-1234-...",
-    "status": "success",
-    "amount": 150000.00
-  }
-}
-```
-
-**Response (Blocked by AI):**
-```json
-{
-  "error": "Payment blocked: Worker has not been approved by the AI risk engine."
+  "employeeId": "BATCH_WORKER_UUID"
 }
 ```
 
 ---
 
-## 3. Verify Transfer
-**Endpoint:** `GET /api/payroll/verify/:reference`  
-**Description:** Verifies the status of a specific disbursement with Squad and updates the audit trail.
-
-**URL Example:** `/api/payroll/verify/PYG-abcd-1234-...`
+## 6. Delete Payroll Batch
+**Endpoint:** `DELETE /api/company/delete-batch/:batchId`  
+**Description:** Deletes a payroll batch and all associated worker records.
 
 ---
 
 ## Headers (Required for all)
 `Authorization: Bearer <JWT_TOKEN>`  
-`Content-Type: application/json`
-
-## Audit Trail Events Logged
-- `VIRTUAL_ACCOUNT_CREATED`
-- `PAYMENT_BLOCKED`
-- `TRANSFER_SUCCESS`
-- `TRANSFER_FAILED`
-- `TRANSFER_VERIFIED`
+`Content-Type: application/json` (except for file uploads)

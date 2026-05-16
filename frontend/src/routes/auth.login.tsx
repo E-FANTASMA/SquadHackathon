@@ -13,15 +13,26 @@ function LoginPage() {
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  const handle = (role: "worker" | "company_admin") => {
-    if (!email) {
-      toast.error("Enter your email to continue");
+  const handle = async (role: "worker" | "company_admin") => {
+    if (!email || !password) {
+      toast.error("Enter your email and password to continue");
       return;
     }
-    login(email, role);
-    toast.success(`Signed in as ${role === "worker" ? "Worker" : "Company Admin"}`);
-    navigate(role === "worker" ? "/worker/home" : "/admin/dashboard");
+    try {
+      const user = await login(email, password);
+      toast.success(`Signed in successfully as ${user.role}`);
+      
+      // Use the actual role from the database to navigate
+      if (user.role === 'worker') {
+        navigate("/worker/home");
+      } else {
+        navigate("/admin/dashboard");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Login failed");
+    }
   };
 
   return (
@@ -29,7 +40,7 @@ function LoginPage() {
       <div className="w-full rounded-2xl border bg-card p-6 shadow-[var(--shadow-card)]">
         <h1 className="text-xl font-semibold">Sign in to PayGuard</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Demo mode &mdash; pick your portal and continue. Backend wires in next.
+          Access your secure payroll portal.
         </p>
 
         <Tabs defaultValue="worker" className="mt-6">
@@ -45,7 +56,7 @@ function LoginPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pwd">Password</Label>
-              <Input id="pwd" type="password" placeholder="••••••••" defaultValue="demo1234" />
+              <Input id="pwd" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
           </div>
 

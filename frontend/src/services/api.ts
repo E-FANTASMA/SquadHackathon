@@ -10,17 +10,70 @@ import type { PayrollBatch, FailedTransaction } from "@/store/batchStore";
 import { useLedgerStore } from "@/store/ledgerStore";
 import { useBatchStore } from "@/store/batchStore";
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-export const USE_REAL_API = !!API_BASE_URL;
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
+export const USE_REAL_API = true; // Always use the backend for this integration
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const headers: Record<string, string> = {};
+  if (!(init?.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  
+  // Add Auth Token if available
+  try {
+    const authStateStr = localStorage.getItem('payguard-auth');
+    if (authStateStr) {
+      const authState = JSON.parse(authStateStr);
+      const token = authState.state?.user?.token;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to parse auth state", e);
+  }
+
+  const url = `${API_BASE_URL}${path}`;
+  console.log(`DEBUG: Calling API: ${init?.method || 'GET'} ${url}`);
+
+  const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { ...headers, ...(init?.headers as Record<string, string> ?? {}) },
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json() as Promise<T>;
+
+  if (!res.ok) {
+    let errorMsg = `${res.status} ${res.statusText}`;
+    try {
+      const errorData = await res.json();
+      errorMsg = errorData.error || errorData.message || errorMsg;
+    } catch (e) {
+      // Not JSON
+    }
+    console.error(`DEBUG: API Error: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
+  const data = await res.json();
+  console.log(`DEBUG: API Success: ${path}`, data);
+  return data as T;
 }
+
+// ---------- Auth ----------
+
+export const authService = {
+  async companySignup(data: any) {
+    return http("/auth/company/signup", { method: "POST", body: JSON.stringify(data) });
+  },
+  async workerSignup(data: any) {
+    return http("/auth/worker/signup", { method: "POST", body: JSON.stringify(data) });
+  },
+  async login(data: any) {
+    return http("/auth/company/login", { method: "POST", body: JSON.stringify(data) });
+  },
+  async getSquadBalance() {
+    return http("/payment/balance", { method: "GET" });
+  },
+};
 
 // ---------- Worker portal ----------
 
@@ -59,15 +112,28 @@ export interface UploadPayrollInput { filename: string; workerCount: number; tot
 
 export const companyService = {
   /** POST /company/upload-payroll */
-  async uploadPayroll(input: UploadPayrollInput): Promise<PayrollBatch> {
-    if (USE_REAL_API) return http("/company/upload-payroll", { method: "POST", body: JSON.stringify(input) });
-    return useBatchStore.getState().addBatch(input);
+  async uploadPayroll(input: FormData | UploadPayrollInput): Promise<any> {
+    if (USE_REAL_API) {
+      const body = input instanceof FormData ? input : JSON.stringify(input);
+      return http("/company/upload-payroll", { method: "POST", body });
+    }
+    return useBatchStore.getState().addBatch(input as UploadPayrollInput);
   },
 
   /** GET /company/payroll-batches */
-  async listBatches(): Promise<PayrollBatch[]> {
+  async listBatches(): Promise<any[]> {
     if (USE_REAL_API) return http("/company/payroll-batches");
     return useBatchStore.getState().batches;
+  },
+
+  /** GET /company/batch-workers/:id */
+  async getBatchWorkers(batchId: string): Promise<any[]> {
+    return http(`/company/batch-workers/${batchId}`);
+  },
+
+  /** DELETE /company/delete-batch/:id */
+  async deleteBatch(batchId: string): Promise<any> {
+    return http(`/company/delete-batch/${batchId}`, { method: "DELETE" });
   },
 
   /** POST /company/wallet/fund */
@@ -80,6 +146,11 @@ export const companyService = {
   async getFailedTransaction(ref: string): Promise<FailedTransaction | undefined> {
     if (USE_REAL_API) return http(`/company/payments/failed/${encodeURIComponent(ref)}`);
     return useBatchStore.getState().getFailure(ref);
+  },
+
+  /** POST /company/update-worker-status */
+  async updateWorkerStatus(data: { workerRecordId: string; status: string }): Promise<any> {
+    return http("/company/update-worker-status", { method: "POST", body: JSON.stringify(data) });
   },
 
   /** POST /company/squad/disburse — only callable when verification_status === 'verified'. */

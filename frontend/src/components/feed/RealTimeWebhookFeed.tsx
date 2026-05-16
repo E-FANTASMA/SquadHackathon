@@ -29,16 +29,6 @@ const SAMPLE: { kind: FeedKind; message: string }[] = [
 
 export function RealTimeWebhookFeed() {
   const events = useFeedStore((s) => s.events);
-  const push = useFeedStore((s) => s.push);
-
-  useEffect(() => {
-    let i = 0;
-    const t = setInterval(() => {
-      push(SAMPLE[i % SAMPLE.length]);
-      i++;
-    }, 4200);
-    return () => clearInterval(t);
-  }, [push]);
 
   return (
     <div className="rounded-lg border bg-card shadow-[var(--shadow-card)]">
@@ -48,25 +38,29 @@ export function RealTimeWebhookFeed() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[color:var(--squad-released)] opacity-60" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-[color:var(--squad-released)]" />
           </span>
-          <h3 className="text-sm font-semibold">Squad Webhook Feed</h3>
+          <h3 className="text-sm font-semibold">AI & Squad Alerts</h3>
         </div>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Live</span>
       </div>
-      <ul className="max-h-[480px] divide-y overflow-y-auto">
-        {events.map((e) => {
-          const Icon = ICONS[e.kind];
-          return (
-            <li key={e.id} className="flex items-start gap-3 px-4 py-2.5">
-              <Icon className="mt-0.5 h-4 w-4 shrink-0" style={{ color: COLORS[e.kind] }} />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs leading-snug">{e.message}</p>
-                <p className="text-[10px] text-muted-foreground">
-                  {new Date(e.ts).toLocaleTimeString()}
-                </p>
-              </div>
-            </li>
-          );
-        })}
+      <ul className="max-h-[600px] divide-y overflow-y-auto">
+        {events.length === 0 ? (
+          <li className="p-8 text-center text-xs text-muted-foreground">No alerts yet. Monitoring AI risk engine and Squad gateway…</li>
+        ) : (
+          events.map((e) => {
+            const Icon = ICONS[e.kind];
+            return (
+              <li key={e.id} className="flex items-start gap-3 px-4 py-2.5">
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" style={{ color: COLORS[e.kind] }} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs leading-snug font-medium">{e.message}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {new Date(e.ts).toLocaleTimeString()}
+                  </p>
+                </div>
+              </li>
+            );
+          })
+        )}
       </ul>
     </div>
   );

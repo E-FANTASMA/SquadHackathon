@@ -4,16 +4,24 @@ const authController = {
     // Company Signup
     companySignup: async (req, res) => {
         try {
-            const { company_name, email, password, phone_number } = req.body;
+            const { companyName, company_name, email, password, phone_number, phone } = req.body;
+            const final_company_name = companyName || company_name;
+            const final_phone = phone_number || phone;
 
-            if (!company_name || !email || !password) {
-                return res.status(400).json({ error: 'Missing required fields' });
+            if (!final_company_name || !email || !password) {
+                return res.status(400).json({ error: 'Missing required fields (Company name, Email, and Password)' });
             }
 
-            // 1. Sign up user in Supabase Auth
+            // 1. Sign up user in Supabase Auth (Trigger handles profile creation)
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email,
                 password,
+                options: {
+                    data: {
+                        full_name: final_company_name,
+                        role: 'company_admin'
+                    }
+                }
             });
 
             if (authError) throw authError;
@@ -24,26 +32,12 @@ const authController = {
             const { data: companyData, error: companyError } = await supabaseAdmin
                 .from('companies')
                 .insert([
-                    { company_name, email, phone_number }
+                    { admin_id: userId, company_name: final_company_name, phone_number: final_phone }
                 ])
                 .select()
                 .single();
 
             if (companyError) throw companyError;
-
-            // 3. Create user record in public.users
-            const { error: userError } = await supabaseAdmin
-                .from('users')
-                .insert([
-                    { 
-                        id: userId, 
-                        role: 'company_admin', 
-                        company_id: companyData.id, 
-                        email 
-                    }
-                ]);
-
-            if (userError) throw userError;
 
             res.status(201).json({
                 message: 'Company registered successfully. Please check your email for verification.',
@@ -60,44 +54,61 @@ const authController = {
     // Worker Signup
     workerSignup: async (req, res) => {
         try {
-            const { full_name, nin, email, password, phone_number } = req.body;
+            const { fullName, full_name, nin, email, password } = req.body;
+            const final_full_name = fullName || full_name;
 
-            if (!full_name || !nin || !email || !password) {
-                return res.status(400).json({ error: 'Missing required fields' });
+            if (!final_full_name || !nin || !email || !password) {
+                return res.status(400).json({ error: 'Missing required fields (Full name, NIN, Email, and Password)' });
             }
 
-            // 1. Sign up user in Supabase Auth
+            // ENFORCEMENT: Check if NIN exists in any payroll record
+            const { data: payrollMatch, error: matchError } = await supabaseAdmin
+                .from('payroll_workers')
+                .select('id, full_name')
+                .eq('nin', nin)
+                .maybeSingle();
+
+            if (matchError) throw matchError;
+
+            if (!payrollMatch) {
+                return res.status(403).json({ 
+                    error: 'Access Denied: Your NIN is not registered in any authorized payroll. Please contact your employer.' 
+                });
+            }
+
+            // Optional: Loosely check name match
+            const pName = payrollMatch.full_name.toLowerCase();
+            const sName = final_full_name.toLowerCase();
+            if (!pName.includes(sName.split(' ')[0]) && !sName.includes(pName.split(' ')[0])) {
+                return res.status(403).json({ 
+                    error: 'Access Denied: The name provided does not match the record associated with this NIN.' 
+                });
+            }
+
+            // 1. Sign up user in Supabase Auth (Trigger handles profile creation)
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email,
                 password,
+                options: {
+                    data: {
+                        full_name: final_full_name,
+                        role: 'worker'
+                    }
+                }
             });
 
             if (authError) throw authError;
 
             const userId = authData.user.id;
 
-            // 2. Create user record in public.users
-            const { error: userError } = await supabaseAdmin
-                .from('users')
-                .insert([
-                    { 
-                        id: userId, 
-                        role: 'worker', 
-                        email 
-                    }
-                ]);
-
-            if (userError) throw userError;
-
-            // 3. Create worker record
+            // 2. Create worker record (linked to profile)
             const { data: workerData, error: workerError } = await supabaseAdmin
                 .from('workers')
                 .insert([
                     { 
-                        user_id: userId, 
-                        full_name, 
-                        nin,
-                        // account_number and bank_name might be added later during claim or profile update
+                        profile_id: userId, 
+                        full_name: final_full_name, 
+                        nin 
                     }
                 ])
                 .select()
@@ -121,32 +132,49 @@ const authController = {
     login: async (req, res) => {
         try {
             const { email, password } = req.body;
+            console.log(`DEBUG: Login attempt for email: ${email}`);
+
+            if (!email || !password) {
+                return res.status(400).json({ error: 'Email and password are required' });
+            }
 
             const { data, error } = await supabase.auth.signInWithPassword({
                 email,
                 password,
             });
 
-            if (error) throw error;
+            if (error) {
+                console.error(`DEBUG: Supabase Auth error: ${error.message}`);
+                throw error;
+            }
 
-            // Fetch user profile from public.users to get the role
-            const { data: profile, error: profileError } = await supabase
-                .from('users')
-                .select('*')
+            console.log(`DEBUG: Supabase Auth success for user: ${data.user.id}`);
+
+            // Fetch user profile from public.profiles
+            const { data: profile, error: profileError } = await supabaseAdmin
+                .from('profiles')
+                .select('*, companies(*), workers(*)')
                 .eq('id', data.user.id)
-                .single();
+                .maybeSingle();
 
-            if (profileError) throw profileError;
+            if (profileError) {
+                console.error(`DEBUG: Profile fetch error: ${profileError.message}`);
+                // Don't throw here, maybe return what we have
+            }
+
+            if (!profile) {
+                console.warn(`DEBUG: Profile not found for user ${data.user.id}. Is the DB trigger working?`);
+            }
 
             res.status(200).json({
                 message: 'Login successful',
                 session: data.session,
                 user: data.user,
-                profile: profile
+                profile: profile || { role: 'unknown', full_name: 'Unknown User' }
             });
 
         } catch (error) {
-            console.error('Login error:', error);
+            console.error('Login error:', error.message);
             res.status(401).json({ error: error.message });
         }
     }

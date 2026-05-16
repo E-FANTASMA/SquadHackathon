@@ -1,15 +1,15 @@
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { useBatchStore, type BatchStatus } from "@/store/batchStore";
 import { useFeedStore } from "@/store/feedStore";
 import { companyService } from "@/services/api";
 import { naira, compactNaira } from "@/lib/format";
-import { FileSpreadsheet, Upload } from "lucide-react";
+import { FileSpreadsheet, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-
 
 const STATUS_COLOR: Record<BatchStatus, string> = {
   pending: "var(--status-pending)",
@@ -19,24 +19,53 @@ const STATUS_COLOR: Record<BatchStatus, string> = {
 };
 
 function BatchesPage() {
-  const batches = useBatchStore((s) => s.batches);
-  const advance = useBatchStore((s) => s.advanceBatch);
+  const [batches, setBatches] = useState<any[]>([]);
   const pushFeed = useFeedStore((s) => s.push);
   const [last, setLast] = useState<string | null>(null);
 
+  const fetchBatches = async () => {
+    try {
+      const data = await companyService.listBatches();
+      setBatches(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchBatches();
+  }, []);
+
+  const deleteBatch = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this batch and all its worker records?")) return;
+    try {
+      await companyService.deleteBatch(id);
+      toast.success("Batch deleted");
+      fetchBatches();
+    } catch (error: any) {
+      toast.error(error.message || "Delete failed");
+    }
+  };
+
   const onDrop = useCallback((files: File[]) => {
     files.forEach(async (f) => {
-      const workerCount = 50 + Math.floor(Math.random() * 200);
-      const totalAmount = workerCount * (200_000 + Math.floor(Math.random() * 200_000));
-      const batch = await companyService.uploadPayroll({ filename: f.name, workerCount, totalAmount });
-      setLast(batch.id);
-      toast.success(`Uploaded ${f.name}`);
-      pushFeed({ kind: "info", message: `Payroll batch uploaded · ${batch.id}` });
-      // simulate pipeline
-      setTimeout(() => advance(batch.id), 1500);
-      setTimeout(() => advance(batch.id), 3500);
+      try {
+        const formData = new FormData();
+        formData.append("payroll_file", f);
+        formData.append("batch_name", f.name);
+        
+        const res = await companyService.uploadPayroll(formData);
+        
+        toast.success(`Uploaded ${f.name}`);
+        pushFeed({ kind: "info", message: `New payroll batch uploaded: ${f.name}` });
+        pushFeed({ kind: "released", message: `${res.workerCount} workers imported to Smart Decision Ledger` });
+        
+        fetchBatches();
+      } catch (error: any) {
+        toast.error(error.message || "Upload failed");
+      }
     });
-  }, [advance, pushFeed]);
+  }, [pushFeed]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -89,29 +118,34 @@ function BatchesPage() {
             <tbody>
               {batches.map((b) => (
                 <tr key={b.id} className={cn("border-t", last === b.id && "bg-primary/5")}>
-                  <td className="px-4 py-2.5 font-medium tabular-nums">{b.id}</td>
+                  <td className="px-4 py-2.5 font-medium tabular-nums">{b.id.slice(0, 8)}</td>
                   <td className="px-4 py-2.5">
-                    <span className="inline-flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-muted-foreground" /> {b.filename}</span>
+                    <span className="inline-flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-muted-foreground" /> {b.batch_name}</span>
                   </td>
-                  <td className="px-4 py-2.5 tabular-nums">{b.workerCount}</td>
-                  <td className="px-4 py-2.5 tabular-nums">{compactNaira(b.totalAmount)}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{new Date(b.uploadedAt).toLocaleString()}</td>
+                  <td className="px-4 py-2.5 tabular-nums">{b.total_workers}</td>
+                  <td className="px-4 py-2.5 tabular-nums">{compactNaira(b.total_amount)}</td>
+                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{new Date(b.upload_date).toLocaleString()}</td>
                   <td className="px-4 py-2.5">
                     <span
                       className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize"
                       style={{
-                        background: `color-mix(in oklab, ${STATUS_COLOR[b.status]} 14%, transparent)`,
-                        color: STATUS_COLOR[b.status],
+                        background: `color-mix(in oklab, ${STATUS_COLOR[b.status as BatchStatus] || STATUS_COLOR.pending} 14%, transparent)`,
+                        color: STATUS_COLOR[b.status as BatchStatus] || STATUS_COLOR.pending,
                       }}
                     >
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_COLOR[b.status] }} />
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_COLOR[b.status as BatchStatus] || STATUS_COLOR.pending }} />
                       {b.status}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {b.status !== "completed" && (
-                      <Button variant="outline" size="sm" onClick={() => advance(b.id)}>Advance</Button>
-                    )}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to={`/admin/verify/${b.id}`}>View Details</Link>
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => deleteBatch(b.id)} className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}

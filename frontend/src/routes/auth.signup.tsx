@@ -15,21 +15,31 @@ function SignupPage() {
   const signup = useAuthStore((s) => s.signup);
   const navigate = useNavigate();
 
-  const [worker, setWorker] = useState({ fullName: "", nin: "", email: "", phone: "" });
-  const [company, setCompany] = useState({ companyName: "", email: "", phone: "" });
+  const [worker, setWorker] = useState({ fullName: "", nin: "", email: "", phone: "", password: "" });
+  const [company, setCompany] = useState({ companyName: "", email: "", phone: "", password: "" });
 
-  const submitWorker = () => {
-    if (!worker.fullName || !worker.email) return toast.error("Full name and email required");
-    if (worker.nin && worker.nin.length !== 11) return toast.error("NIN must be 11 digits");
-    signup({ ...worker, role: "worker" });
-    toast.success("Account created");
-    navigate("/worker/claim");
+  const submitWorker = async () => {
+    if (!worker.fullName || !worker.email || !worker.password || !worker.nin) {
+      return toast.error("Name, email, NIN and password required");
+    }
+    if (worker.nin.length !== 11) return toast.error("NIN must be 11 digits");
+    try {
+      await signup({ ...worker, role: "worker" });
+      toast.success("Account created");
+      navigate("/worker/claim");
+    } catch (error: any) {
+      toast.error(error.message || "Signup failed");
+    }
   };
-  const submitCompany = () => {
-    if (!company.companyName || !company.email) return toast.error("Company name and email required");
-    signup({ ...company, role: "company_admin" });
-    toast.success("Company account created");
-    navigate("/admin/dashboard");
+  const submitCompany = async () => {
+    if (!company.companyName || !company.email || !company.password) return toast.error("Name, email and password required");
+    try {
+      await signup({ ...company, role: "company_admin" });
+      toast.success("Company account created");
+      navigate("/admin/dashboard");
+    } catch (error: any) {
+      toast.error(error.message || "Signup failed");
+    }
   };
 
   return (
@@ -49,6 +59,7 @@ function SignupPage() {
             <Field label="NIN (11 digits)" value={worker.nin} onChange={(v) => setWorker({ ...worker, nin: v.replace(/\D/g, "").slice(0, 11) })} inputMode="numeric" />
             <Field label="Email" type="email" value={worker.email} onChange={(v) => setWorker({ ...worker, email: v })} />
             <Field label="Phone number" value={worker.phone} onChange={(v) => setWorker({ ...worker, phone: v })} />
+            <Field label="Password" type="password" value={worker.password} onChange={(v) => setWorker({ ...worker, password: v })} />
             <Button className="w-full" onClick={submitWorker}>Create Worker account</Button>
           </TabsContent>
 
@@ -56,6 +67,7 @@ function SignupPage() {
             <Field label="Company name" value={company.companyName} onChange={(v) => setCompany({ ...company, companyName: v })} />
             <Field label="Email" type="email" value={company.email} onChange={(v) => setCompany({ ...company, email: v })} />
             <Field label="Phone number" value={company.phone} onChange={(v) => setCompany({ ...company, phone: v })} />
+            <Field label="Password" type="password" value={company.password} onChange={(v) => setCompany({ ...company, password: v })} />
             <Button className="w-full" onClick={submitCompany}>Create Company account</Button>
           </TabsContent>
         </Tabs>

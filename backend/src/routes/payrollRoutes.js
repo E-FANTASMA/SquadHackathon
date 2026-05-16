@@ -15,11 +15,12 @@ router.post('/upload-payroll', upload.single('payroll_file'), payrollController.
 router.get('/payroll-batches', payrollController.getPayrollBatches);
 router.get('/batch-workers/:batchId', payrollController.getBatchWorkers);
 router.post('/update-worker-status', payrollController.updateWorkerStatus);
+router.delete('/delete-batch/:batchId', payrollController.deleteBatch);
 
 // PayGuard AI & Squad Integration Routes
 router.post('/create-virtual-account', payrollController.createVirtualAccount);
 router.post('/initiate-funding', payrollController.initiateFunding);
-router.post('/wallet/fund', payrollController.initiateFunding); // Alias for frontend
+router.post('/wallet/fund', payrollController.fundWallet); // Corrected mapping
 router.post('/simulate-funding', payrollController.simulateFunding);
 router.post('/disburse', payrollController.disburse);
 router.post('/squad/disburse', payrollController.disburse); // Alias for frontend

@@ -171,6 +171,17 @@ const paymentController = {
             console.error('Webhook error:', error);
             res.status(500).json({ error: error.message });
         }
+    },
+
+    // Fetch Squad Merchant Balance
+    getSquadBalance: async (req, res) => {
+        try {
+            const balanceData = await squadService.getMerchantBalance();
+            res.status(200).json(balanceData);
+        } catch (error) {
+            console.error('Get balance error:', error);
+            res.status(500).json({ error: error.message });
+        }
     }
 };
 

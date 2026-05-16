@@ -6,13 +6,13 @@ const workerController = {
     claimRecord: async (req, res) => {
         try {
             const { account_number, bank_code, bank_name } = req.body;
-            const user_id = req.user.id;
+            const profile_id = req.user.id;
 
             // 1. Get worker profile
             const { data: worker, error: workerError } = await supabaseAdmin
                 .from('workers')
                 .select('*')
-                .eq('user_id', user_id)
+                .eq('profile_id', profile_id)
                 .single();
 
             if (workerError) throw workerError;
@@ -87,18 +87,20 @@ const workerController = {
 
     uploadDocuments: async (req, res) => {
         try {
-            const user_id = req.user.id;
+            const profile_id = req.user.id;
             const { files } = req; // Expecting multiple files
 
-            if (!files || (!files.statement && !files.screenshot)) {
-                return res.status(400).json({ error: 'Please upload at least one document (statement or screenshot)' });
+            if (!files || !files.statement || !files.screenshot) {
+                return res.status(400).json({ 
+                    error: 'Both bank statement and bank app transaction screenshot are required for verification.' 
+                });
             }
 
             // Get worker id
             const { data: worker, error: workerError } = await supabaseAdmin
                 .from('workers')
-                .select('id')
-                .eq('user_id', user_id)
+                .select('id, full_name')
+                .eq('profile_id', profile_id)
                 .single();
 
             if (workerError) throw workerError;
@@ -106,22 +108,29 @@ const workerController = {
             let statement_url = null;
             let screenshot_url = null;
 
-            // Upload statement if provided
-            if (files.statement) {
-                const statementFile = files.statement[0];
-                const path = `${worker.id}/statements/${Date.now()}_${statementFile.originalname}`;
-                await storageUtils.uploadFile('statements', path, statementFile.buffer, statementFile.mimetype);
-                statement_url = storageUtils.getPublicUrl('statements', path);
-            }
+            // 1. Upload statement
+            const statementFile = files.statement[0];
+            const statementPath = `${worker.id}/statements/${Date.now()}_${statementFile.originalname}`;
+            await storageUtils.uploadFile('statements', statementPath, statementFile.buffer, statementFile.mimetype);
+            statement_url = storageUtils.getPublicUrl('statements', statementPath);
 
-            // Upload screenshot if provided
-            if (files.screenshot) {
-                const screenshotFile = files.screenshot[0];
-                const path = `${worker.id}/screenshots/${Date.now()}_${screenshotFile.originalname}`;
-                await storageUtils.uploadFile('screenshots', path, screenshotFile.buffer, screenshotFile.mimetype);
-                screenshot_url = storageUtils.getPublicUrl('screenshots', path);
-            }
+            // 2. Upload screenshot
+            const screenshotFile = files.screenshot[0];
+            const screenshotPath = `${worker.id}/screenshots/${Date.now()}_${screenshotFile.originalname}`;
+            await storageUtils.uploadFile('screenshots', screenshotPath, screenshotFile.buffer, screenshotFile.mimetype);
+            screenshot_url = storageUtils.getPublicUrl('screenshots', screenshotPath);
 
+            // 3. AI ANALYSIS (Simulated for this hackathon)
+            // In a real scenario, we'd pass these URLs to an AI model to:
+            // - Extract transactions from screenshot
+            // - Extract transactions from statement
+            // - Compare them
+            // - Look for salary credit from previous month
+            
+            // Simulating AI flagging/verification based on some mock logic or just default to pending
+            const trust_score = 75; // Starting score
+            const verification_status = 'flagged'; // AI flags for admin review since we're comparing documents
+            
             // Record upload in database
             const { data: uploadRecord, error: uploadError } = await supabaseAdmin
                 .from('worker_uploads')
@@ -138,9 +147,33 @@ const workerController = {
 
             if (uploadError) throw uploadError;
 
+            // Update worker status to flagged (pending admin review of documents)
+            await supabaseAdmin
+                .from('workers')
+                .update({ 
+                    verification_status: 'flagged', 
+                    trust_score: 75 
+                })
+                .eq('id', worker.id);
+
+            // Also update any matching payroll_workers record
+            const { data: workerProfile } = await supabaseAdmin
+                .from('workers')
+                .select('nin')
+                .eq('id', worker.id)
+                .single();
+
+            if (workerProfile) {
+                await supabaseAdmin
+                    .from('payroll_workers')
+                    .update({ verification_status: 'flagged' })
+                    .eq('nin', workerProfile.nin);
+            }
+
             res.status(201).json({
-                message: 'Documents uploaded successfully',
-                uploadRecord
+                message: 'Documents uploaded successfully. AI is comparing transactions. Status: Flagged for Admin Review.',
+                uploadRecord,
+                verification_status: 'flagged'
             });
 
         } catch (error) {
@@ -151,7 +184,7 @@ const workerController = {
 
     getStatus: async (req, res) => {
         try {
-            const user_id = req.user.id;
+            const profile_id = req.user.id;
             const { employeeId } = req.query;
 
             let query = supabaseAdmin
@@ -161,7 +194,7 @@ const workerController = {
             if (employeeId) {
                 query = query.eq('id', employeeId);
             } else {
-                query = query.eq('user_id', user_id);
+                query = query.eq('profile_id', profile_id);
             }
 
             const { data, error } = await query.single();

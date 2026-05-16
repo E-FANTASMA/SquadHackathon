@@ -15,6 +15,7 @@ You can deploy the backend to platforms like **Render**, **Railway**, or **Herok
     SQUAD_SECRET_KEY=...
     SQUAD_BASE_URL=https://api-d.squadco.com (Production)
     SQUAD_MERCHANT_ID=...
+    FRONTEND_URL=https://your-frontend-domain.com
     DISABLE_AUTH=false
     ```
 2.  **Root Directory:** Set the root directory to `backend`.
