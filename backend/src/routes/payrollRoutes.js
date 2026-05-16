@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const payrollController = require('../controllers/payrollController');
+const workerController = require('../controllers/workerController');
 const { authMiddleware, authorize } = require('../middleware/authMiddleware');
 
 const upload = multer({ storage: multer.memoryStorage() });

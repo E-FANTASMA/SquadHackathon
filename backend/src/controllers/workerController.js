@@ -1,6 +1,8 @@
 const { supabaseAdmin } = require('../config/supabase');
 const storageUtils = require('../utils/storageUtils');
 const squadService = require('../services/squadService');
+const ocrUtils = require('../utils/ocrUtils');
+const verificationUtils = require('../utils/verificationUtils');
 
 const workerController = {
     claimRecord: async (req, res) => {
@@ -13,9 +15,14 @@ const workerController = {
                 .from('workers')
                 .select('*')
                 .eq('profile_id', profile_id)
-                .single();
+                .maybeSingle();
 
             if (workerError) throw workerError;
+            if (!worker) {
+                return res.status(404).json({
+                    error: 'Worker record not found for this account. Please complete worker signup again, or contact support to re-link your profile.'
+                });
+            }
 
             const finalNin = (worker.nin || requestedNin || '').toString().trim();
             const finalAccount = (account_number || '').toString().trim();
@@ -81,12 +88,10 @@ const workerController = {
             // DETERMINE STATUS
             if (isDuplicate) {
                 status = 'flagged';
-            } else if (trust_score >= 70) { // Will reach 100 with docs later
-                status = 'verified';
-            } else if (trust_score >= 40) {
-                status = 'flagged';
             } else {
-                status = 'rejected';
+                // Claiming a payroll record is only the first 3 checks (max 70).
+                // Final bucket should be decided after documents + receipt challenge.
+                status = trust_score >= 40 ? 'pending' : 'flagged';
             }
 
             // 4. Update worker profile
@@ -217,7 +222,7 @@ const workerController = {
             // Get worker id
             const { data: worker, error: workerError } = await supabaseAdmin
                 .from('workers')
-                .select('id, full_name')
+                .select('id, full_name, nin, account_number, trust_score, verification_status')
                 .eq('profile_id', profile_id)
                 .single();
 
@@ -239,15 +244,21 @@ const workerController = {
             screenshot_url = storageUtils.getPublicUrl('screenshots', screenshotPath);
 
             // 3. AI ANALYSIS (Simulated for this hackathon)
-            // In a real scenario, we'd pass these URLs to an AI model to:
-            // - Extract transactions from screenshot
-            // - Extract transactions from statement
-            // - Compare them
-            // - Look for salary credit from previous month
-            
-            // Simulating AI flagging/verification based on some mock logic or just default to pending
-            const trust_score = 75; // Starting score
-            const verification_status = 'flagged'; // AI flags for admin review since we're comparing documents
+            // OCR-based extraction + rule checks.
+            const statementOcr = await ocrUtils.extractStatement(statementFile);
+            const screenshotOcr = await ocrUtils.extractScreenshot(screenshotFile);
+
+            const analysis = verificationUtils.analyzeUploads({
+                worker,
+                statement: statementOcr,
+                screenshot: screenshotOcr
+            });
+
+            // Scoring: keep the first 70 points from claim flow, then add up to 30 for docs.
+            // (If claim flow wasn't completed yet, start from 0 and only apply doc points as evidence.)
+            const baseScore = Number(worker.trust_score || 0);
+            const trust_score = Math.max(0, Math.min(100, baseScore + analysis.scoreDelta));
+            const verification_status = verificationUtils.statusFromScore(trust_score, analysis.hardFlag);
             
             // Record upload in database
             const { data: uploadRecord, error: uploadError } = await supabaseAdmin
@@ -265,12 +276,12 @@ const workerController = {
 
             if (uploadError) throw uploadError;
 
-            // Update worker status to flagged (pending admin review of documents)
+            // Update worker status + score
             await supabaseAdmin
                 .from('workers')
                 .update({ 
-                    verification_status: 'flagged', 
-                    trust_score: 75 
+                    verification_status, 
+                    trust_score
                 })
                 .eq('id', worker.id);
 
@@ -289,13 +300,69 @@ const workerController = {
             }
 
             res.status(201).json({
-                message: 'Documents uploaded successfully. AI is comparing transactions. Status: Flagged for Admin Review.',
+                message: 'Documents uploaded successfully. AI checks complete.',
                 uploadRecord,
-                verification_status: 'flagged'
+                verification_status,
+                trust_score,
+                evidence: analysis.evidence,
+                receipt_challenge: analysis.receiptChallenge
             });
 
         } catch (error) {
             console.error('Upload documents error:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    submitReceipt: async (req, res) => {
+        try {
+            const profile_id = req.user.id;
+            const { reference_id, amount, date } = req.body;
+            const { files } = req;
+
+            if (!files || !files.receipt || !files.receipt[0]) {
+                return res.status(400).json({ error: 'Receipt image is required.' });
+            }
+
+            if (!reference_id) {
+                return res.status(400).json({ error: 'reference_id is required.' });
+            }
+
+            const { data: worker, error: workerError } = await supabaseAdmin
+                .from('workers')
+                .select('id, full_name, nin, account_number, trust_score')
+                .eq('profile_id', profile_id)
+                .single();
+
+            if (workerError) throw workerError;
+
+            const receiptFile = files.receipt[0];
+            const receiptOcr = await ocrUtils.extractReceipt(receiptFile);
+
+            const receiptCheck = verificationUtils.verifyReceipt({
+                expected: { reference_id, amount, date },
+                receipt: receiptOcr
+            });
+
+            // Receipt challenge is an additional gate: it can hard-flag if mismatch,
+            // otherwise it adds a small bonus but never exceeds 100.
+            const baseScore = Number(worker.trust_score || 0);
+            const trust_score = Math.max(0, Math.min(100, baseScore + receiptCheck.scoreDelta));
+            const verification_status = verificationUtils.statusFromScore(trust_score, receiptCheck.hardFlag);
+
+            await supabaseAdmin
+                .from('workers')
+                .update({ verification_status, trust_score })
+                .eq('id', worker.id);
+
+            res.status(200).json({
+                message: 'Receipt processed.',
+                verification_status,
+                trust_score,
+                evidence: receiptCheck.evidence
+            });
+        } catch (error) {
+            console.error('Submit receipt error:', error);
             res.status(500).json({ error: error.message });
         }
     },

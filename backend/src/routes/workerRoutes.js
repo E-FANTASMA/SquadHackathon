@@ -20,6 +20,9 @@ router.post('/submit-documents', upload.fields([
     { name: 'screenshot', maxCount: 1 }
 ]), workerController.uploadDocuments); // Alias for frontend
 router.post('/submit-appeal', workerController.submitAppeal);
+router.post('/submit-receipt', upload.fields([
+    { name: 'receipt', maxCount: 1 }
+]), workerController.submitReceipt);
 router.get('/status', workerController.getStatus);
 
 module.exports = router;

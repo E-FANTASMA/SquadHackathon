@@ -20,6 +20,8 @@ function DocumentsPage() {
   const [statementFile, setStatementFile] = useState<File | null>(null);
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
   const [tally, setTally] = useState<number | null>(null);
+  const [receiptChallenge, setReceiptChallenge] = useState<any>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
   if (!user?.matchedEmployeeId || !employee) {
     return (
@@ -46,14 +48,16 @@ function DocumentsPage() {
       
       pushFeed({ kind: "info", message: `Worker submitted documents · ${employee.id}` });
       
+      setReceiptChallenge(res.receipt_challenge ?? null);
+
       // Simulate tally for UI effect
-      runTally(res.trustScore || 75, () => {
+      runTally(res.trust_score || employee.trustScore || 75, () => {
         toast.info(res.message);
         if (res.verification_status === "verified") toast.success(`Verified!`);
         else if (res.verification_status === "flagged") toast.warning(`Flagged for review`);
         
-        // Refresh status
-        window.location.reload();
+        // Refresh status (keep challenge visible if provided)
+        if (!res.receipt_challenge) window.location.reload();
       });
     } catch (error: any) {
       toast.error(error.message || "Upload failed");
@@ -73,6 +77,25 @@ function DocumentsPage() {
         setTimeout(() => { done(); setTally(null); }, 600);
       }
     }, 50);
+  };
+
+  const submitReceipt = async () => {
+    if (!receiptChallenge?.reference_id) return toast.error("No receipt challenge reference available");
+    if (!receiptFile) return toast.error("Please attach a receipt image");
+    try {
+      const res: any = await workerService.submitReceipt({
+        reference_id: receiptChallenge.reference_id,
+        amount: receiptChallenge.amount,
+        date: receiptChallenge.date,
+        receipt: receiptFile
+      });
+      toast.info(res.message || "Receipt submitted");
+      if (res.verification_status === "verified") toast.success("Verified!");
+      else if (res.verification_status === "flagged") toast.warning("Flagged for review");
+      window.location.reload();
+    } catch (error: any) {
+      toast.error(error.message || "Receipt upload failed");
+    }
   };
 
   return (
@@ -124,6 +147,19 @@ function DocumentsPage() {
           <div className="text-xs uppercase tracking-wider text-muted-foreground">AI tallying your trust score…</div>
           <div className="mt-2 text-5xl font-semibold tabular-nums" style={{ color: "var(--primary)" }}>
             {tally}<span className="text-2xl text-muted-foreground">/{MAX_SCORE}</span>
+          </div>
+        </div>
+      )}
+
+      {receiptChallenge?.reference_id && (
+        <div className="mt-6 rounded-xl border bg-card p-5 shadow-[var(--shadow-card)]">
+          <div className="text-sm font-semibold">Receipt challenge</div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Upload a receipt for reference <span className="font-mono">{receiptChallenge.reference_id}</span>.
+          </p>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <input type="file" accept="image/*" onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
+            <Button onClick={submitReceipt} disabled={!receiptFile}>Submit receipt</Button>
           </div>
         </div>
       )}

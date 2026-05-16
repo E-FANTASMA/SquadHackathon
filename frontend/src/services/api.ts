@@ -109,14 +109,24 @@ export const workerService = {
   },
 
   /** POST /worker/submit-documents — returns updated record with new score. */
-  async submitDocuments(employeeId: string, checks: VerificationChecks): Promise<Employee | undefined> {
-    if (USE_REAL_API) return http(`/worker/submit-documents`, { method: "POST", body: JSON.stringify({ employeeId, checks }) });
-    return useLedgerStore.getState().submitDocs(employeeId, checks);
+  async submitDocuments(employeeId: string, payload: FormData): Promise<any> {
+    if (USE_REAL_API) return http(`/worker/submit-documents`, { method: "POST", body: payload });
+    return useLedgerStore.getState().submitDocs(employeeId, payload as unknown as VerificationChecks);
   },
 
   /** POST /worker/submit-appeal */
   async submitAppeal(data: { reason: string; payroll_worker_id?: string }) {
     return http("/worker/submit-appeal", { method: "POST", body: JSON.stringify(data) });
+  },
+
+  /** POST /worker/submit-receipt — multipart (receipt) + expected tx fields. */
+  async submitReceipt(input: { reference_id: string; amount?: string; date?: string; receipt: File }) {
+    const form = new FormData();
+    form.append("receipt", input.receipt);
+    form.append("reference_id", input.reference_id);
+    if (input.amount) form.append("amount", input.amount);
+    if (input.date) form.append("date", input.date);
+    return http("/worker/submit-receipt", { method: "POST", body: form });
   },
 };
 
