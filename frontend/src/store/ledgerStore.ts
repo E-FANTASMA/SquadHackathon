@@ -30,6 +30,19 @@ interface LedgerState {
 
 export function mapWorker(w: any): Employee {
   const status = w.verification_status || "pending";
+  const score = w.trust_score || 0;
+  
+  // Smart derivation of checks based on backend status/score
+  // In a real system, these keys would come directly from the DB/AI results
+  const checks: VerificationChecks = {
+    ninVerified: score >= 25,
+    nameMatch: score >= 45, // NIN(25) + Name(20)
+    statementValid: !!w.worker_uploads?.length,
+    screenshotMatch: !!w.worker_uploads?.length && score >= 60,
+    receiptMatch: score >= 90,
+    txnRefValid: score >= 105,
+  };
+
   return {
     id: w.id,
     name: w.full_name,
@@ -37,23 +50,12 @@ export function mapWorker(w: any): Employee {
     account: w.account_number,
     salary: w.salary_amount || 0,
     department: w.department || "Payroll", 
-    trustScore: w.trust_score || (status === "verified" ? 100 : status === "flagged" ? 75 : status === "rejected" ? 20 : 0),
+    trustScore: score || (status === "verified" ? 100 : status === "flagged" ? 75 : status === "rejected" ? 20 : 0),
     verificationStatus: status as VerificationStatus,
     squadStatus: squadFromStatus(status as VerificationStatus),
     riskScore: 0,
     hasSubmittedDocs: !!w.worker_uploads?.length || status !== "pending",
-    checks: w.checks || {
-      ninVerified: status === "verified",
-      statementAuthentic: status === "verified",
-      salaryMatched: status === "verified",
-      accountAgeValid: status === "verified",
-      noSharedAccount: status === "verified",
-      nameMatch: status === "verified",
-      statementValid: status === "verified",
-      screenshotMatch: status === "verified",
-      receiptMatch: status === "verified",
-      txnRefValid: status === "verified",
-    },
+    checks: w.checks || checks,
     evidence: w.evidence || [],
     accountAgeDays: 0,
     flagReason: undefined,

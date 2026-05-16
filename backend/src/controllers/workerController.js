@@ -262,8 +262,8 @@ const workerController = {
             await storageUtils.uploadFile('screenshots', screenshotPath, screenshotFile.buffer, screenshotFile.mimetype);
             screenshot_url = storageUtils.getPublicUrl('screenshots', screenshotPath);
 
-            // 3. AI ANALYSIS (Simulated for this hackathon)
-            // OCR-based extraction + rule checks.
+            // 3. AI ANALYSIS
+            // OCR-based extraction + rule checks using Tesseract.js and PDF-parse.
             const statementOcr = await ocrUtils.extractStatement(statementFile);
             const screenshotOcr = await ocrUtils.extractScreenshot(screenshotFile);
 
@@ -274,7 +274,6 @@ const workerController = {
             });
 
             // Scoring: keep the first 70 points from claim flow, then add up to 30 for docs.
-            // (If claim flow wasn't completed yet, start from 0 and only apply doc points as evidence.)
             const baseScore = Number(worker.trust_score || 0);
             const trust_score = Math.max(0, Math.min(100, baseScore + analysis.scoreDelta));
             const verification_status = verificationUtils.statusFromScore(trust_score, analysis.hardFlag);
@@ -305,17 +304,11 @@ const workerController = {
                 .eq('id', worker.id);
 
             // Also update any matching payroll_workers record
-            const { data: workerProfile } = await supabaseAdmin
-                .from('workers')
-                .select('nin')
-                .eq('id', worker.id)
-                .single();
-
-            if (workerProfile) {
+            if (worker.nin) {
                 await supabaseAdmin
                     .from('payroll_workers')
-                    .update({ verification_status: 'flagged' })
-                    .eq('nin', workerProfile.nin);
+                    .update({ verification_status })
+                    .eq('nin', worker.nin);
             }
 
             res.status(201).json({
