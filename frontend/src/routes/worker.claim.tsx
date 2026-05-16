@@ -9,6 +9,25 @@ import { workerService } from "@/services/api";
 import { CheckCircle2, AlertTriangle, Search } from "lucide-react";
 import { toast } from "sonner";
 
+const BANKS = [
+  { name: "Access Bank", code: "044" },
+  { name: "Ecobank", code: "050" },
+  { name: "Fidelity Bank", code: "070" },
+  { name: "First Bank", code: "011" },
+  { name: "First City Monument Bank", code: "214" },
+  { name: "Guaranty Trust Bank", code: "058" },
+  { name: "Heritage Bank", code: "030" },
+  { name: "Keystone Bank", code: "082" },
+  { name: "Polaris Bank", code: "076" },
+  { name: "Stanbic IBTC Bank", code: "221" },
+  { name: "Standard Chartered Bank", code: "068" },
+  { name: "Sterling Bank", code: "232" },
+  { name: "Union Bank", code: "032" },
+  { name: "United Bank for Africa", code: "033" },
+  { name: "Unity Bank", code: "215" },
+  { name: "Wema Bank", code: "035" },
+  { name: "Zenith Bank", code: "057" },
+];
 
 function ClaimPage() {
   const user = useAuthStore((s) => s.user);
@@ -17,15 +36,23 @@ function ClaimPage() {
 
   const [nin, setNin] = useState(user?.nin ?? "");
   const [account, setAccount] = useState("");
+  const [bankCode, setBankCode] = useState("");
   const [result, setResult] = useState<"idle" | "match" | "miss">("idle");
   const [busy, setBusy] = useState(false);
 
   const onSearch = async () => {
     if (nin.length !== 11) return toast.error("NIN must be exactly 11 digits");
     if (account.length !== 10) return toast.error("Account number must be exactly 10 digits");
+    if (!bankCode) return toast.error("Please select your bank");
+
     setBusy(true);
     try {
-      const { matched, employee } = await workerService.claimRecord({ nin, account });
+      const { matched, employee } = await workerService.claimRecord({ 
+        nin, 
+        account, 
+        bank_code: bankCode,
+        bank_name: BANKS.find(b => b.code === bankCode)?.name
+      });
       if (matched && employee) {
         patch({ matchedEmployeeId: employee.id, nin });
         setResult("match");
@@ -33,8 +60,8 @@ function ClaimPage() {
       } else {
         setResult("miss");
       }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Lookup failed");
+    } catch (e: any) {
+      toast.error(e.message || "Lookup failed");
     } finally {
       setBusy(false);
     }
@@ -50,7 +77,7 @@ function ClaimPage() {
       </p>
 
       <div className="mt-6 rounded-xl border bg-card p-5 shadow-[var(--shadow-card)]">
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="nin">NIN (11 digits)</Label>
             <Input
@@ -61,21 +88,40 @@ function ClaimPage() {
               className="h-12 text-base tabular-nums"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="acct">Account Number (10 digits)</Label>
-            <Input
-              id="acct" inputMode="numeric" maxLength={10}
-              value={account}
-              onChange={(e) => setAccount(e.target.value.replace(/\D/g, "").slice(0, 10))}
-              placeholder="0123456789"
-              className="h-12 text-base tabular-nums"
-            />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="bank">Select Bank</Label>
+              <select 
+                id="bank"
+                className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={bankCode}
+                onChange={(e) => setBankCode(e.target.value)}
+              >
+                <option value="">Select your bank</option>
+                {BANKS.map(b => (
+                  <option key={b.code} value={b.code}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="acct">Account Number</Label>
+              <Input
+                id="acct" inputMode="numeric" maxLength={10}
+                value={account}
+                onChange={(e) => setAccount(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                placeholder="0123456789"
+                className="h-12 text-base tabular-nums"
+              />
+            </div>
           </div>
+
           <Button className="h-12 w-full text-base" onClick={onSearch} disabled={busy}>
             <Search className="h-4 w-4" /> {busy ? "Searching…" : "Search payroll"}
           </Button>
           <p className="text-[11px] text-muted-foreground">
-            Demo tip: try NIN <span className="font-mono">11111111111</span> or use the account on a worker shown in the admin ledger.
+            Demo tip: Use GTBank (<span className="font-mono">058</span>) for best results in sandbox.
           </p>
         </div>
       </div>

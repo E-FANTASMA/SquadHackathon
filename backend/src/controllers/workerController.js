@@ -5,7 +5,7 @@ const squadService = require('../services/squadService');
 const workerController = {
     claimRecord: async (req, res) => {
         try {
-            const { account_number, bank_code, bank_name } = req.body;
+            const { account_number, bank_code, bank_name, nin: requestedNin } = req.body;
             const profile_id = req.user.id;
 
             // 1. Get worker profile
@@ -17,12 +17,17 @@ const workerController = {
 
             if (workerError) throw workerError;
 
+            // Use NIN from profile or request (profile is more authoritative)
+            const finalNin = (worker.nin || requestedNin || '').toString().trim();
+            const finalAccount = (account_number || '').toString().trim();
+
+            console.log(`DEBUG: Claim attempt - NIN: [${finalNin}], Account: [${finalAccount}]`);
+
             // 2. SQUAD INTEGRATION: Verify Bank Account
             let accountVerified = false;
             try {
-                const verification = await squadService.verifyBankAccount(account_number, bank_code);
+                const verification = await squadService.verifyBankAccount(finalAccount, bank_code);
                 if (verification && verification.data && verification.data.account_name) {
-                    // Check if names match loosely (you can make this stricter)
                     const squadName = verification.data.account_name.toLowerCase();
                     const workerName = worker.full_name.toLowerCase();
                     
@@ -35,32 +40,37 @@ const workerController = {
                     }
                 }
             } catch (err) {
-                console.warn('Squad verification failed, proceeding with caution:', err.message);
-                // In production, you might want to block here
+                console.warn('Squad verification failed:', err.message);
             }
 
             // 3. Find matching payroll record
-            // Matching logic: NIN and Account Number
-            const { data: payrollRecord, error: payrollError } = await supabaseAdmin
+            // Matching logic: NIN and Account Number (Account number might have leading zero issues from Excel)
+            const { data: payrollRecords, error: payrollError } = await supabaseAdmin
                 .from('payroll_workers')
                 .select('*')
-                .eq('nin', worker.nin)
-                .eq('account_number', account_number)
-                .eq('worker_claimed', false)
-                .maybeSingle();
+                .eq('nin', finalNin)
+                .eq('worker_claimed', false);
 
             if (payrollError) throw payrollError;
 
+            // Find match with account number (handling potential leading zero stripping)
+            const payrollRecord = payrollRecords.find(r => {
+                const dbAcc = r.account_number.toString().trim();
+                return dbAcc === finalAccount || 
+                       dbAcc === finalAccount.replace(/^0+/, '') ||
+                       '0' + dbAcc === finalAccount;
+            });
+
             if (!payrollRecord) {
                 return res.status(404).json({ 
-                    error: 'No matching unclaimed payroll record found. Please verify your NIN and account number.' 
+                    error: 'No matching unclaimed payroll record found. Please verify your NIN and account number match what your employer uploaded.' 
                 });
             }
 
             // 4. Update worker profile with bank details
             const { error: updateWorkerError } = await supabaseAdmin
                 .from('workers')
-                .update({ account_number, bank_name, bank_code })
+                .update({ account_number: finalAccount, bank_name, bank_code })
                 .eq('id', worker.id);
 
             if (updateWorkerError) throw updateWorkerError;

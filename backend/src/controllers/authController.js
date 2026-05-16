@@ -62,19 +62,21 @@ const authController = {
             }
 
             // ENFORCEMENT: Check if NIN exists in any payroll record
-            const { data: payrollMatch, error: matchError } = await supabaseAdmin
+            const { data: payrollRecords, error: matchError } = await supabaseAdmin
                 .from('payroll_workers')
                 .select('id, full_name')
                 .eq('nin', nin)
-                .maybeSingle();
+                .limit(1);
 
             if (matchError) throw matchError;
 
-            if (!payrollMatch) {
+            if (!payrollRecords || payrollRecords.length === 0) {
                 return res.status(403).json({ 
                     error: 'Access Denied: Your NIN is not registered in any authorized payroll. Please contact your employer.' 
                 });
             }
+
+            const payrollMatch = payrollRecords[0];
 
             // Optional: Loosely check name match
             const pName = payrollMatch.full_name.toLowerCase();
@@ -102,7 +104,7 @@ const authController = {
             const userId = authData.user.id;
 
             // 2. Create worker record (linked to profile)
-            const { data: workerData, error: workerError } = await supabaseAdmin
+            const { data: workerDataArr, error: workerError } = await supabaseAdmin
                 .from('workers')
                 .insert([
                     { 
@@ -111,15 +113,14 @@ const authController = {
                         nin 
                     }
                 ])
-                .select()
-                .single();
+                .select();
 
             if (workerError) throw workerError;
 
             res.status(201).json({
                 message: 'Worker registered successfully. Please check your email for verification.',
                 user: authData.user,
-                worker: workerData
+                worker: workerDataArr?.[0]
             });
 
         } catch (error) {

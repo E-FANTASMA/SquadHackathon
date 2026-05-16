@@ -77,13 +77,22 @@ export const authService = {
 
 // ---------- Worker portal ----------
 
-export interface ClaimRecordInput { nin: string; account: string; }
+export interface ClaimRecordInput { nin: string; account: string; bank_code?: string; bank_name?: string; }
 export interface ClaimRecordResult { matched: boolean; employee?: Employee; }
 
 export const workerService = {
   /** POST /worker/claim-record */
   async claimRecord(input: ClaimRecordInput): Promise<ClaimRecordResult> {
-    if (USE_REAL_API) return http("/worker/claim-record", { method: "POST", body: JSON.stringify(input) });
+    if (USE_REAL_API) {
+      // Map account to account_number for backend
+      const body = {
+        nin: input.nin,
+        account_number: input.account,
+        bank_code: input.bank_code,
+        bank_name: input.bank_name
+      };
+      return http("/worker/claim-record", { method: "POST", body: JSON.stringify(body) });
+    }
     const employee = useLedgerStore.getState().findByNinAndAccount(input.nin, input.account);
     return { matched: !!employee, employee };
   },
