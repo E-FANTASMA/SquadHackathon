@@ -391,38 +391,54 @@ const workerController = {
             const profile_id = req.user.id;
             const { employeeId } = req.query;
 
-            let query = supabaseAdmin
+            console.log(`DEBUG: getStatus for Profile: ${profile_id}, EmployeeId: ${employeeId}`);
+
+            let workerQuery = supabaseAdmin
                 .from('workers')
                 .select('*, worker_uploads(*)');
 
-            if (employeeId) {
-                // Try to find by workers.id first, but if it looks like a payroll_workers id (matchedEmployeeId), we might need to be flexible.
-                // However, workerService.status usually passes workers.id if we use it consistently.
-                query = query.eq('id', employeeId);
+            if (employeeId && employeeId !== 'undefined') {
+                workerQuery = workerQuery.eq('id', employeeId);
             } else {
-                query = query.eq('profile_id', profile_id);
+                workerQuery = workerQuery.eq('profile_id', profile_id);
             }
 
-            const { data: worker, error } = await query.maybeSingle();
+            const { data: worker, error: workerError } = await workerQuery.maybeSingle();
 
-            if (error) throw error;
+            if (workerError) throw workerError;
+            
             if (!worker) {
-                return res.status(404).json({ error: 'Worker profile not found.' });
+                // If we still don't find it, try searching by profile_id regardless of employeeId
+                const { data: fallbackWorker } = await supabaseAdmin
+                    .from('workers')
+                    .select('*, worker_uploads(*)')
+                    .eq('profile_id', profile_id)
+                    .maybeSingle();
+                
+                if (!fallbackWorker) {
+                    return res.status(404).json({ error: 'Worker profile not found. Have you claimed your payroll record?' });
+                }
+                return res.status(200).json({ status: fallbackWorker.verification_status, employee: fallbackWorker });
             }
 
             // JOIN: Get salary info from payroll_workers by NIN
             let salary_amount = 0;
             let department = 'Payroll';
             if (worker.nin) {
-                const { data: payrollRecord } = await supabaseAdmin
-                    .from('payroll_workers')
-                    .select('salary_amount, department')
-                    .eq('nin', worker.nin)
-                    .maybeSingle();
-                
-                if (payrollRecord) {
-                    salary_amount = payrollRecord.salary_amount;
-                    department = payrollRecord.department || department;
+                try {
+                    const { data: payrollRecord } = await supabaseAdmin
+                        .from('payroll_workers')
+                        .select('salary_amount, department')
+                        .eq('nin', worker.nin)
+                        .limit(1)
+                        .maybeSingle();
+                    
+                    if (payrollRecord) {
+                        salary_amount = payrollRecord.salary_amount || 0;
+                        department = payrollRecord.department || department;
+                    }
+                } catch (e) {
+                    console.error('Error fetching payroll details for status:', e);
                 }
             }
 
